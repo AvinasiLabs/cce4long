@@ -1,0 +1,60 @@
+[workspace]
+resolver = "2"
+members = [
+    "privacy-plane/key-manager",
+
+    "privacy-plane/compute-controller",
+    "privacy-plane/output-gate",
+    "privacy-plane/tee-verifier",
+    "privacy-plane/cced",
+    "computing-plane/tee-agent",
+    "computing-plane/decrypt-fs",
+    "computing-plane/executor",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "TBD"
+repository = "https://github.com/AvinasiFi/cce4long"
+
+[workspace.dependencies]
+# Internal crates
+key-manager = { path = "privacy-plane/key-manager" }
+decrypt-fs = { path = "computing-plane/decrypt-fs" }
+executor = { path = "computing-plane/executor" }
+
+compute-controller = { path = "privacy-plane/compute-controller" }
+output-gate = { path = "privacy-plane/output-gate" }
+tee-verifier = { path = "privacy-plane/tee-verifier" }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Crypto
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+x25519-dalek = "2"
+rand = "0.8"
+hex = "0.4"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP
+axum = "0.8"
+reqwest = { version = "0.11", features = ["json"] }
+
+# TEE Attestation (CoCo)
+# attester = { git = "https://github.com/confidential-containers/guest-components", features = ["tdx-attester", "snp-attester"] }

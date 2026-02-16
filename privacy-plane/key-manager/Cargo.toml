@@ -1,0 +1,10 @@
+[package]
+name = "key-manager"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+hkdf.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true

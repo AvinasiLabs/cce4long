@@ -1,0 +1,14 @@
+[Unit]
+Description=TEE Agent - CVM computation lifecycle manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/tee-agent --config /etc/avinasi/tee-agent.yaml
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

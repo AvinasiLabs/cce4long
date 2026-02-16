@@ -1,0 +1,15 @@
+[package]
+name = "tee-agent"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "tee-agent"
+path = "src/main.rs"
+
+[dependencies]
+decrypt-fs.workspace = true
+executor.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

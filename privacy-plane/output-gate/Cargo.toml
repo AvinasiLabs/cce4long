@@ -1,0 +1,6 @@
+[package]
+name = "output-gate"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
