@@ -2,9 +2,11 @@
 
 **Confidential Computing Engine for Longevity**
 
-A confidential computing engine that enables privacy-preserving AI research and model training on sensitive longevity data. Data never leaves the Trusted Execution Environment (TEE) — only verified, auditable results are delivered.
+A confidential computing engine for AI research on sensitive longevity data.
 
 ## Architecture
+
+![cce4long architecture](docs/arch.drawio.png)
 
 The engine consists of two planes:
 
