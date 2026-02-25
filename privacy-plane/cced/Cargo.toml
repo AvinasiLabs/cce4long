@@ -3,6 +3,10 @@ name = "cced"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "cced"
+path = "src/lib.rs"
+
 [[bin]]
 name = "cced"
 path = "src/main.rs"
@@ -22,3 +26,10 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

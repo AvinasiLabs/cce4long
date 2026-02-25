@@ -1,3 +1,5 @@
+pub mod ecdhe;
+
 use hkdf::Hkdf;
 use sha2::Sha256;
 use thiserror::Error;
@@ -15,6 +17,10 @@ impl Key {
 pub enum KeyError {
     #[error("HKDF expand failed")]
     DerivationFailed,
+    #[error("ECDHE wrap failed: {0}")]
+    WrapFailed(String),
+    #[error("ECDHE unwrap failed: {0}")]
+    UnwrapFailed(String),
 }
 
 pub trait RootKeyProvider: Send + Sync {
@@ -79,6 +85,17 @@ impl<R: RootKeyProvider> KeyManager<R> {
             .map_err(|_| KeyError::DerivationFailed)?;
         Ok(Key(dek))
     }
+
+    /// Derive a Result Encryption Key for the given job.
+    /// HKDF-SHA256(ikm=root_key, salt=job_id.as_bytes(), info="result-encryption")
+    /// Domain-separated from DEK by different info string.
+    pub fn derive_rek(&self, job_id: &str) -> Result<Key, KeyError> {
+        let hk = Hkdf::<Sha256>::new(Some(job_id.as_bytes()), self.root.root_key());
+        let mut rek = [0u8; 32];
+        hk.expand(b"result-encryption", &mut rek)
+            .map_err(|_| KeyError::DerivationFailed)?;
+        Ok(Key(rek))
+    }
 }
 
 #[cfg(test)]
@@ -123,5 +140,31 @@ mod tests {
         // Should be deterministic when no env var
         let provider2 = DevRootKeyProvider::new();
         assert_eq!(provider.root_key(), provider2.root_key());
+    }
+
+    #[test]
+    fn derive_rek_is_deterministic() {
+        let km = KeyManager::new(FixedKeyProvider([0xAA; 32]));
+        let k1 = km.derive_rek("job-1").unwrap();
+        let k2 = km.derive_rek("job-1").unwrap();
+        assert_eq!(k1.0, k2.0);
+    }
+
+    #[test]
+    fn different_job_ids_produce_different_reks() {
+        let km = KeyManager::new(FixedKeyProvider([0xAA; 32]));
+        let k1 = km.derive_rek("job-1").unwrap();
+        let k2 = km.derive_rek("job-2").unwrap();
+        assert_ne!(k1.0, k2.0);
+    }
+
+    #[test]
+    fn rek_and_dek_domain_separation() {
+        // Even if the salt bytes happen to be the same, different info strings
+        // must produce different keys.
+        let km = KeyManager::new(FixedKeyProvider([0xCC; 32]));
+        let dek = km.derive_dek(1).unwrap();
+        let rek = km.derive_rek("job-1").unwrap();
+        assert_ne!(dek.0, rek.0);
     }
 }
