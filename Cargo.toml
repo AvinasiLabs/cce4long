@@ -27,6 +27,7 @@ executor = { path = "computing-plane/executor" }
 compute-controller = { path = "privacy-plane/compute-controller" }
 output-gate = { path = "privacy-plane/output-gate" }
 tee-verifier = { path = "privacy-plane/tee-verifier" }
+cced = { path = "privacy-plane/cced" }
 
 # Async
 tokio = { version = "1", features = ["full"] }
