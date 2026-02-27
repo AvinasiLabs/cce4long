@@ -33,6 +33,7 @@ async fn run() -> Result<(), AgentError> {
         tee_agent::DevAttester,
         tee_agent::PpClient::new(&config.pp_url),
         config.credential,
+        config.submit_credential,
         config.dataset_ids,
         config.data_dir,
         config.output_dir,

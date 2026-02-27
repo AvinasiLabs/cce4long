@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use sha2::{Digest, Sha256};
+
 use key_manager::Key;
 
 use crate::error::AgentError;
@@ -49,6 +51,33 @@ pub fn encrypt_output(rek: &Key, output_dir: &str) -> Result<Vec<EncryptedFile>,
 pub struct EncryptedFile {
     pub filename: String,
     pub data: Vec<u8>,
+}
+
+/// Compute a deterministic hash over encrypted files.
+/// Sort by filename, then SHA256(concat all encrypted data).
+pub fn compute_result_hash(files: &[EncryptedFile]) -> [u8; 32] {
+    let mut sorted: Vec<&EncryptedFile> = files.iter().collect();
+    sorted.sort_by(|a, b| a.filename.cmp(&b.filename));
+
+    let mut hasher = Sha256::new();
+    for f in &sorted {
+        hasher.update(&f.data);
+    }
+    hasher.finalize().into()
+}
+
+/// Write encrypted files to disk as {filename}.avin.
+pub fn write_encrypted_files(
+    files: &[EncryptedFile],
+    output_dir: &str,
+) -> Result<(), AgentError> {
+    let dir = Path::new(output_dir);
+    for f in files {
+        let path = dir.join(format!("{}.avin", f.filename));
+        std::fs::write(&path, &f.data)
+            .map_err(|e| AgentError::Config(format!("write {}: {e}", path.display())))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

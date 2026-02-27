@@ -10,7 +10,7 @@ use key_manager::Key;
 use crate::attester::Attester;
 use crate::error::AgentError;
 use crate::pp_client::PpClient;
-use crate::result::{EncryptedFile, encrypt_output};
+use crate::result::{EncryptedFile, compute_result_hash, encrypt_output, write_encrypted_files};
 
 /// Acquired keys from the privacy plane.
 #[derive(Debug)]
@@ -26,6 +26,7 @@ pub struct AcquiredKeys {
 pub struct AgentResult {
     pub execution: executor::ExecutionResult,
     pub encrypted_files: Vec<EncryptedFile>,
+    pub submit_status: String,
 }
 
 /// TEE Agent — one-shot orchestrator for the computation lifecycle.
@@ -33,6 +34,7 @@ pub struct Agent<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> 
     attester: A,
     pp_client: PpClient,
     credential: JobCredential,
+    submit_credential: JobCredential,
     dataset_ids: Vec<u64>,
     data_dir: String,
     output_dir: String,
@@ -47,6 +49,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
         attester: A,
         pp_client: PpClient,
         credential: JobCredential,
+        submit_credential: JobCredential,
         dataset_ids: Vec<u64>,
         data_dir: String,
         output_dir: String,
@@ -58,6 +61,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
             attester,
             pp_client,
             credential,
+            submit_credential,
             dataset_ids,
             data_dir,
             output_dir,
@@ -68,16 +72,18 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
     }
 
     /// Run the complete agent lifecycle:
-    /// acquire_keys → mount_data → execute → encrypt_results → cleanup
+    /// acquire_keys → mount_data → execute → encrypt_results → submit_result → cleanup
     pub async fn run(&mut self) -> Result<AgentResult, AgentError> {
         let keys = self.acquire_keys().await?;
         self.mount_data(&keys).await?;
         let execution = self.execute().await?;
         let encrypted_files = self.encrypt_results(&keys.rek)?;
+        let submit_status = self.submit_result(&encrypted_files).await?;
         self.cleanup().await;
         Ok(AgentResult {
             execution,
             encrypted_files,
+            submit_status,
         })
     }
 
@@ -151,6 +157,36 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
     /// Encrypt output files with REK.
     fn encrypt_results(&self, rek: &Key) -> Result<Vec<EncryptedFile>, AgentError> {
         encrypt_output(rek, &self.output_dir)
+    }
+
+    /// Submit encrypted results to the privacy plane.
+    async fn submit_result(
+        &self,
+        encrypted_files: &[EncryptedFile],
+    ) -> Result<String, AgentError> {
+        // 1. Write encrypted files to output_dir
+        write_encrypted_files(encrypted_files, &self.output_dir)?;
+
+        // 2. Compute result hash
+        let result_hash = compute_result_hash(encrypted_files);
+
+        // 3. Generate quote: REPORTDATA = SHA512(job_id || result_hash)
+        let mut hasher = Sha512::new();
+        hasher.update(self.credential.job_id.as_bytes());
+        hasher.update(result_hash);
+        let reportdata: [u8; 64] = hasher.finalize().into();
+        let quote = self.attester.generate_quote(&reportdata).await?;
+
+        // 4. Submit to PP
+        self.pp_client
+            .submit_result(
+                &self.submit_credential,
+                &self.credential.job_id,
+                &self.output_dir,
+                &result_hash,
+                &quote,
+            )
+            .await
     }
 
     /// Clean up mounted datasets.

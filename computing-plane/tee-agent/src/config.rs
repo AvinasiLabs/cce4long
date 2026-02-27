@@ -6,6 +6,7 @@ use crate::error::AgentError;
 pub struct AgentConfig {
     pub pp_url: String,
     pub credential: JobCredential,
+    pub submit_credential: JobCredential,
     pub dataset_ids: Vec<u64>,
     pub data_dir: String,
     pub output_dir: String,
@@ -29,6 +30,10 @@ impl AgentConfig {
         let credential: JobCredential = serde_json::from_str(&credential_json)
             .map_err(|e| AgentError::Config(format!("invalid credential JSON: {e}")))?;
 
+        let submit_credential_json = required_env("TEE_AGENT_SUBMIT_CREDENTIAL")?;
+        let submit_credential: JobCredential = serde_json::from_str(&submit_credential_json)
+            .map_err(|e| AgentError::Config(format!("invalid submit credential JSON: {e}")))?;
+
         let dataset_ids_str = required_env("TEE_AGENT_DATASET_IDS")?;
         let dataset_ids = parse_dataset_ids(&dataset_ids_str)?;
 
@@ -40,6 +45,7 @@ impl AgentConfig {
         Ok(Self {
             pp_url,
             credential,
+            submit_credential,
             dataset_ids,
             data_dir,
             output_dir,
@@ -74,6 +80,7 @@ mod tests {
         for var in [
             "TEE_AGENT_PP_URL",
             "TEE_AGENT_CREDENTIAL",
+            "TEE_AGENT_SUBMIT_CREDENTIAL",
             "TEE_AGENT_DATASET_IDS",
             "TEE_AGENT_DATA_DIR",
             "TEE_AGENT_OUTPUT_DIR",
@@ -104,6 +111,7 @@ mod tests {
         unsafe {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_DATASET_IDS", "1,2,3");
             std::env::set_var("TEE_AGENT_DATA_DIR", "/tmp/data");
             std::env::set_var("TEE_AGENT_OUTPUT_DIR", "/tmp/output");
@@ -112,6 +120,7 @@ mod tests {
         let config = AgentConfig::from_env().unwrap();
         assert_eq!(config.pp_url, "http://localhost:3000");
         assert_eq!(config.credential.job_id, "job-1");
+        assert_eq!(config.submit_credential.job_id, "job-1");
         assert_eq!(config.dataset_ids, vec![1, 2, 3]);
         assert_eq!(config.data_dir, "/tmp/data");
         assert_eq!(config.output_dir, "/tmp/output");
@@ -127,6 +136,7 @@ mod tests {
         unsafe {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_DATASET_IDS", "42");
         }
 
@@ -145,6 +155,7 @@ mod tests {
 
         unsafe {
             std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_DATASET_IDS", "1");
         }
 
@@ -161,6 +172,7 @@ mod tests {
 
         unsafe {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_DATASET_IDS", "1");
         }
 
@@ -178,6 +190,7 @@ mod tests {
         unsafe {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_CREDENTIAL", "not-json");
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_DATASET_IDS", "1");
         }
 
@@ -195,6 +208,7 @@ mod tests {
         unsafe {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_DATASET_IDS", "1,abc,3");
         }
 

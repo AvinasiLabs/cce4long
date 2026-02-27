@@ -21,6 +21,10 @@ pub enum ApiError {
     InvalidEphPk,
     RequestIdReplay,
     VerifierError(String),
+    // OutputGate errors
+    OutputGate(output_gate::OutputGateError),
+    InvalidResultHash,
+    ResultNotApproved,
 }
 
 impl IntoResponse for ApiError {
@@ -40,6 +44,17 @@ impl IntoResponse for ApiError {
             ApiError::InvalidEphPk => (StatusCode::BAD_REQUEST, "invalid eph_pk: expected 64 hex chars (32 bytes)".into()),
             ApiError::RequestIdReplay => (StatusCode::CONFLICT, "request_id already used".into()),
             ApiError::VerifierError(msg) => (StatusCode::FORBIDDEN, msg),
+            ApiError::OutputGate(e) => {
+                let (status, msg) = match &e {
+                    output_gate::OutputGateError::JobNotFound(_) => (StatusCode::NOT_FOUND, e.to_string()),
+                    output_gate::OutputGateError::AlreadySubmitted(_) => (StatusCode::CONFLICT, e.to_string()),
+                    output_gate::OutputGateError::NotApproved(_) => (StatusCode::FORBIDDEN, e.to_string()),
+                    output_gate::OutputGateError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+                };
+                return (status, axum::Json(json!({ "error": msg }))).into_response();
+            }
+            ApiError::InvalidResultHash => (StatusCode::BAD_REQUEST, "invalid result_hash: expected 64 hex chars (32 bytes)".into()),
+            ApiError::ResultNotApproved => (StatusCode::FORBIDDEN, "result not approved".into()),
         };
         (status, axum::Json(json!({ "error": msg }))).into_response()
     }

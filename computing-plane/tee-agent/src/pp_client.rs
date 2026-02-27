@@ -22,6 +22,20 @@ struct RequestKeysResponse {
     pp_pk: String,
 }
 
+#[derive(Serialize)]
+struct SubmitResultBody {
+    credential: JobCredential,
+    job_id: String,
+    result_path: String,
+    result_hash: String,
+    quote: String,
+}
+
+#[derive(Deserialize)]
+struct SubmitResultResponse {
+    status: String,
+}
+
 pub struct PpClient {
     base_url: String,
     http: reqwest::Client,
@@ -78,6 +92,51 @@ impl PpClient {
             .map_err(|e| AgentError::PpResponse(format!("failed to parse response: {e}")))?;
 
         parse_key_bundle(&resp_body)
+    }
+
+    /// Submit an encrypted result to the PP for review.
+    pub async fn submit_result(
+        &self,
+        credential: &JobCredential,
+        job_id: &str,
+        result_path: &str,
+        result_hash: &[u8; 32],
+        quote: &[u8],
+    ) -> Result<String, AgentError> {
+        let body = SubmitResultBody {
+            credential: credential.clone(),
+            job_id: job_id.to_string(),
+            result_path: result_path.to_string(),
+            result_hash: hex::encode(result_hash),
+            quote: hex::encode(quote),
+        };
+
+        let url = format!("{}/v1/results/submit", self.base_url);
+        let resp = self
+            .http
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AgentError::PpRequest(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "<unreadable>".to_string());
+            return Err(AgentError::PpResponse(format!(
+                "PP returned {status}: {body}"
+            )));
+        }
+
+        let resp_body: SubmitResultResponse = resp
+            .json()
+            .await
+            .map_err(|e| AgentError::PpResponse(format!("failed to parse response: {e}")))?;
+
+        Ok(resp_body.status)
     }
 }
 

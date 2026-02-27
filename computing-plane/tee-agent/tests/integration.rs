@@ -32,10 +32,23 @@ fn key_agent(
     decrypt_fs::DevMountBackend,
     executor::DevRunner,
 > {
+    // Create a dummy submit credential (won't be used in key-only tests)
+    let submit_credential = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "job_id": "unused",
+        "user": "unused",
+        "datasets": [],
+        "nonce": "00000000000000000000000000000000",
+        "issued_at": 1000000,
+        "expires_at": 9999999999u64,
+        "signature": "aa"
+    })).unwrap();
+
     Agent::new(
         DevAttester,
         PpClient::new(pp_url),
         credential,
+        submit_credential,
         dataset_ids,
         "/tmp/data".to_string(),
         "/tmp/output".to_string(),
