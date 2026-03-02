@@ -1,0 +1,13 @@
+name: Finalize after batch upload
+description: |-
+  Finalize the dataset after uploading multiple files across deep directories.
+  Run this after the batch upload tests (05-09).
+  Expected: 200 OK with receipt listing all uploaded files.
+method: POST
+url: http://localhost:3000/v1/datasets/:dataset_id/finalize
+headers:
+  - name: Authorization
+    value: Bearer $upload_token
+path_params:
+  - name: dataset_id
+    value: '0x4242424242424242424242424242424242424242'

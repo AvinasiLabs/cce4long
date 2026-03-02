@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use key_manager::DatasetId;
 use key_manager::Key;
 
 use crate::decrypt::decrypt_avin;
@@ -13,13 +14,13 @@ pub trait MountBackend: Send + Sync {
     /// Mount a dataset, making plaintext available at `mount_point`.
     async fn mount(
         &self,
-        dataset_id: u64,
+        dataset_id: &DatasetId,
         dek: &Key,
         mount_point: &str,
     ) -> Result<(), DecryptFsError>;
 
     /// Unmount a dataset.
-    async fn unmount(&self, dataset_id: u64, mount_point: &str) -> Result<(), DecryptFsError>;
+    async fn unmount(&self, dataset_id: &DatasetId, mount_point: &str) -> Result<(), DecryptFsError>;
 }
 
 /// Dev-mode mount backend: decrypts .avin files in-place,
@@ -30,7 +31,7 @@ pub struct DevMountBackend;
 impl MountBackend for DevMountBackend {
     async fn mount(
         &self,
-        _dataset_id: u64,
+        _dataset_id: &DatasetId,
         dek: &Key,
         mount_point: &str,
     ) -> Result<(), DecryptFsError> {
@@ -64,7 +65,7 @@ impl MountBackend for DevMountBackend {
         Ok(())
     }
 
-    async fn unmount(&self, _dataset_id: u64, _mount_point: &str) -> Result<(), DecryptFsError> {
+    async fn unmount(&self, _dataset_id: &DatasetId, _mount_point: &str) -> Result<(), DecryptFsError> {
         // Dev mode: nothing to unmount (temp dirs handle cleanup)
         Ok(())
     }
@@ -80,6 +81,10 @@ mod tests {
         Key([0x42; 32])
     }
 
+    fn test_id(val: u8) -> DatasetId {
+        DatasetId::from([val; 20])
+    }
+
     #[tokio::test]
     async fn dev_mount_decrypts_avin_files() {
         let tmp = tempfile::tempdir().unwrap();
@@ -91,7 +96,10 @@ mod tests {
         fs::write(dir.join("data.avin"), &encrypted).unwrap();
 
         let backend = DevMountBackend;
-        backend.mount(1, &dek, dir.to_str().unwrap()).await.unwrap();
+        backend
+            .mount(&test_id(0x01), &dek, dir.to_str().unwrap())
+            .await
+            .unwrap();
 
         // Plaintext file should exist without .avin extension
         let result = fs::read(dir.join("data")).unwrap();
@@ -108,7 +116,10 @@ mod tests {
         fs::write(dir.join("file2.avin"), encrypt_avin(&dek, b"content-2")).unwrap();
 
         let backend = DevMountBackend;
-        backend.mount(1, &dek, dir.to_str().unwrap()).await.unwrap();
+        backend
+            .mount(&test_id(0x01), &dek, dir.to_str().unwrap())
+            .await
+            .unwrap();
 
         assert_eq!(fs::read(dir.join("file1")).unwrap(), b"content-1");
         assert_eq!(fs::read(dir.join("file2")).unwrap(), b"content-2");
@@ -124,11 +135,12 @@ mod tests {
         fs::write(dir.join("readme.txt"), b"not encrypted").unwrap();
 
         let backend = DevMountBackend;
-        backend.mount(1, &dek, dir.to_str().unwrap()).await.unwrap();
+        backend
+            .mount(&test_id(0x01), &dek, dir.to_str().unwrap())
+            .await
+            .unwrap();
 
-        // .avin file decrypted
         assert_eq!(fs::read(dir.join("data")).unwrap(), b"encrypted");
-        // .txt file left untouched
         assert_eq!(fs::read(dir.join("readme.txt")).unwrap(), b"not encrypted");
     }
 
@@ -138,17 +150,16 @@ mod tests {
 
         let backend = DevMountBackend;
         backend
-            .mount(1, &test_key(), tmp.path().to_str().unwrap())
+            .mount(&test_id(0x01), &test_key(), tmp.path().to_str().unwrap())
             .await
             .unwrap();
 
-        // No files created, no error
         assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 0);
     }
 
     #[tokio::test]
     async fn dev_unmount_is_noop() {
         let backend = DevMountBackend;
-        backend.unmount(1, "/nonexistent").await.unwrap();
+        backend.unmount(&test_id(0x01), "/nonexistent").await.unwrap();
     }
 }

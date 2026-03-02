@@ -37,4 +37,39 @@ impl Storage for LocalStorage {
         );
         Ok(stored)
     }
+
+    async fn get(&self, key: &str) -> Result<Vec<u8>, StorageError> {
+        let path = self.dir.join(key);
+        tokio::fs::read(&path)
+            .await
+            .map_err(|e| StorageError::Io(e.to_string()))
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<String>, StorageError> {
+        let search_dir = self.dir.join(prefix);
+        if !search_dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut keys = Vec::new();
+        let mut stack = vec![search_dir];
+        while let Some(dir) = stack.pop() {
+            let mut entries = tokio::fs::read_dir(&dir)
+                .await
+                .map_err(|e| StorageError::Io(e.to_string()))?;
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|e| StorageError::Io(e.to_string()))?
+            {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Ok(rel) = path.strip_prefix(&self.dir) {
+                    keys.push(rel.to_string_lossy().into_owned());
+                }
+            }
+        }
+        keys.sort();
+        Ok(keys)
+    }
 }

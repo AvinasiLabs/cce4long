@@ -14,7 +14,7 @@ body:
         "version": 1,
         "job_id": "test-job",
         "user": "alice",
-        "datasets": [1],
+        "datasets": ["0x0101010101010101010101010101010101010101"],
         "nonce": "00000000000000000000000000000000",
         "issued_at": 9999999999,
         "expires_at": 9999999999,

@@ -1,0 +1,9 @@
+name: Finalize dataset - no auth
+description: |-
+  Attempt to finalize without an Authorization header.
+  Expected: 401 Unauthorized.
+method: POST
+url: http://localhost:3000/v1/datasets/:dataset_id/finalize
+path_params:
+  - name: dataset_id
+    value: '0x4242424242424242424242424242424242424242'

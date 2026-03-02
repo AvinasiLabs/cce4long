@@ -25,6 +25,12 @@ pub enum ApiError {
     OutputGate(output_gate::OutputGateError),
     InvalidResultHash,
     ResultNotApproved,
+    // Upload auth errors
+    AuthTokenMissing,
+    AuthTokenInvalid(String),
+    SignatureRecoveryFailed(String),
+    DatasetNotFinalized,
+    DatasetAlreadyFinalized,
 }
 
 impl IntoResponse for ApiError {
@@ -56,6 +62,11 @@ impl IntoResponse for ApiError {
             }
             ApiError::InvalidResultHash => (StatusCode::BAD_REQUEST, "invalid result_hash: expected 64 hex chars (32 bytes)".into()),
             ApiError::ResultNotApproved => (StatusCode::FORBIDDEN, "result not approved".into()),
+            ApiError::AuthTokenMissing => (StatusCode::UNAUTHORIZED, "missing Authorization header".into()),
+            ApiError::AuthTokenInvalid(msg) => (StatusCode::UNAUTHORIZED, format!("invalid upload token: {msg}")),
+            ApiError::SignatureRecoveryFailed(msg) => (StatusCode::UNAUTHORIZED, format!("signature recovery failed: {msg}")),
+            ApiError::DatasetNotFinalized => (StatusCode::FORBIDDEN, "dataset not finalized".into()),
+            ApiError::DatasetAlreadyFinalized => (StatusCode::CONFLICT, "dataset already finalized".into()),
         };
         tracing::warn!(status = %status, error = %msg, "API error response");
         (status, axum::Json(json!({ "error": msg }))).into_response()

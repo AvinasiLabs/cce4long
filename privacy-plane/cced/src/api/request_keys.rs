@@ -1,5 +1,6 @@
 use axum::extract::State;
 use axum::Json;
+use key_manager::DatasetId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use std::sync::Arc;
@@ -17,7 +18,7 @@ pub struct RequestKeysBody {
     pub request_id: String,
     pub quote: String,
     pub eph_pk: String,
-    pub dataset_ids: Vec<u64>,
+    pub dataset_ids: Vec<DatasetId>,
 }
 
 #[derive(Serialize)]
@@ -35,8 +36,8 @@ pub async fn request_keys(
     state.credential_service.verify_and_consume(&body.credential)?;
 
     // 2. Check credential.datasets ⊇ dataset_ids
-    for &ds_id in &body.dataset_ids {
-        if !body.credential.datasets.contains(&ds_id) {
+    for ds_id in &body.dataset_ids {
+        if !body.credential.datasets.contains(ds_id) {
             return Err(ApiError::DatasetNotAuthorized(format!(
                 "dataset {} not in credential",
                 ds_id
@@ -94,7 +95,7 @@ pub async fn request_keys(
 
     // 8. Derive DEKs for each dataset_id
     let mut deks = Vec::with_capacity(body.dataset_ids.len());
-    for &ds_id in &body.dataset_ids {
+    for ds_id in &body.dataset_ids {
         let dek = state.key_manager.derive_dek(ds_id)?;
         deks.push(dek);
     }
@@ -143,7 +144,11 @@ mod tests {
         let mut request_id = [0u8; 16];
         rand::rngs::OsRng.fill_bytes(&mut request_id);
 
-        let credential = state.credential_service.issue("job-1", "alice", vec![1, 2]);
+        let credential = state.credential_service.issue(
+            "job-1",
+            "alice",
+            vec![DatasetId::from([0x01; 20]), DatasetId::from([0x02; 20])],
+        );
 
         // Compute reportdata = SHA512(eph_pk || request_id)
         let mut hasher = Sha512::new();
@@ -158,7 +163,7 @@ mod tests {
             "request_id": hex::encode(&request_id),
             "quote": hex::encode(&quote),
             "eph_pk": hex::encode(cvm_pk.as_bytes()),
-            "dataset_ids": [1, 2]
+            "dataset_ids": ["0x0101010101010101010101010101010101010101", "0x0202020202020202020202020202020202020202"]
         })
     }
 
@@ -220,8 +225,8 @@ mod tests {
     async fn unauthorized_dataset() {
         let state = dev_state();
         let mut body = valid_request(&state);
-        // Request dataset 99 which is not in credential (which has [1, 2])
-        body["dataset_ids"] = serde_json::json!([1, 99]);
+        // Request a dataset not in credential
+        body["dataset_ids"] = serde_json::json!(["0x0101010101010101010101010101010101010101", "0x9999999999999999999999999999999999999999"]);
         let resp = post_request_keys(state, body).await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use key_manager::DatasetId;
 use rand::RngCore;
 use sha2::{Digest, Sha512};
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -16,7 +17,7 @@ use crate::result::{EncryptedFile, compute_result_hash, encrypt_output, write_en
 #[derive(Debug)]
 pub struct AcquiredKeys {
     /// DEKs mapped by dataset_id.
-    pub deks: HashMap<u64, Key>,
+    pub deks: HashMap<DatasetId, Key>,
     /// Result encryption key.
     pub rek: Key,
 }
@@ -35,7 +36,7 @@ pub struct Agent<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> 
     pp_client: PpClient,
     credential: JobCredential,
     submit_credential: JobCredential,
-    dataset_ids: Vec<u64>,
+    dataset_ids: Vec<DatasetId>,
     data_dir: String,
     output_dir: String,
     decrypt_fs: decrypt_fs::DecryptFs<M>,
@@ -50,7 +51,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
         pp_client: PpClient,
         credential: JobCredential,
         submit_credential: JobCredential,
-        dataset_ids: Vec<u64>,
+        dataset_ids: Vec<DatasetId>,
         data_dir: String,
         output_dir: String,
         backend: M,
@@ -129,7 +130,8 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
                 deks.len()
             )));
         }
-        let dek_map: HashMap<u64, Key> = self.dataset_ids.iter().copied().zip(deks).collect();
+        let dek_map: HashMap<DatasetId, Key> =
+            self.dataset_ids.iter().copied().zip(deks).collect();
 
         Ok(AcquiredKeys { deks: dek_map, rek })
     }

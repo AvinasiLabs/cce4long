@@ -8,6 +8,7 @@ use key_manager::{DevRootKeyProvider, KeyManager, RootKeyProvider};
 use output_gate::{DevReviewPolicy, OutputGateService};
 use tee_verifier::{DevVerifier, TeeVerifier};
 
+use crate::access::{AccessVerifier, DevAccessVerifier};
 use crate::storage::Storage;
 
 pub struct AppState {
@@ -18,6 +19,8 @@ pub struct AppState {
     pub measurement_registry: Box<dyn MeasurementRegistry>,
     pub request_id_tracker: Mutex<HashSet<[u8; 16]>>,
     pub output_gate: OutputGateService<DevReviewPolicy>,
+    pub upload_hmac_key: [u8; 32],
+    pub access_verifier: Box<dyn AccessVerifier>,
 }
 
 impl AppState {
@@ -26,6 +29,9 @@ impl AppState {
         let credential_service =
             CredentialService::from_root_key(root.root_key()).expect("credential key derivation");
         let key_manager = KeyManager::new(root);
+        let upload_hmac_key = key_manager
+            .derive_upload_hmac_key()
+            .expect("HMAC key derivation");
         Self {
             key_manager,
             storage,
@@ -34,6 +40,8 @@ impl AppState {
             measurement_registry: Box::new(DevMeasurementRegistry),
             request_id_tracker: Mutex::new(HashSet::new()),
             output_gate: OutputGateService::new(DevReviewPolicy),
+            upload_hmac_key,
+            access_verifier: Box::new(DevAccessVerifier),
         }
     }
 }

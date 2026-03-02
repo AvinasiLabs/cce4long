@@ -1,5 +1,5 @@
-name: Upload empty body
-description: Edge case - upload with empty body. Requires a valid upload token.
+name: Upload deep dir sensor data
+description: Upload a file to a deep directory path (raw/2024/01/sensors/temperature.csv).
 method: POST
 url: http://localhost:3000/v1/datasets/:dataset_id/upload/:path
 headers:
@@ -8,9 +8,9 @@ headers:
   - name: Authorization
     value: Bearer $upload_token
 body:
-  content: ""
+  content: "ts,value\n1704067200,23.5\n1704070800,24.1\n1704074400,22.8"
 path_params:
   - name: dataset_id
     value: '0x4242424242424242424242424242424242424242'
   - name: path
-    value: 'empty.csv'
+    value: 'raw/2024/01/sensors/temperature.csv'

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use key_manager::DatasetId;
 use cced::state::AppState;
 use cced::storage::LocalStorage;
 
@@ -9,6 +10,10 @@ use tee_agent::{DevAttester, PpClient};
 fn dev_state(dir: &str) -> Arc<AppState> {
     let storage = Box::new(LocalStorage::new(dir));
     Arc::new(AppState::dev(storage))
+}
+
+fn test_id(val: u8) -> DatasetId {
+    DatasetId::from([val; 20])
 }
 
 async fn start_pp_server(state: Arc<AppState>) -> String {
@@ -28,12 +33,17 @@ async fn full_lifecycle_success() {
     let state = dev_state(tmp_storage.path().to_str().unwrap());
     let pp_url = start_pp_server(state.clone()).await;
 
+    let ds = test_id(0x01);
+    let wallet = test_id(0xAA);
+
     // 1. Upload test data to PP → creates .avin encrypted files
+    let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
     let test_data = b"col1,col2\nfoo,42\nbar,99";
     let app = cced::api::router(state.clone());
     let req = axum::http::Request::builder()
         .method("POST")
-        .uri("/v1/datasets/1/upload")
+        .uri(&format!("/v1/datasets/{}/upload/data.csv", ds))
+        .header("authorization", format!("Bearer {}", token))
         .body(axum::body::Body::from(test_data.to_vec()))
         .unwrap();
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
@@ -41,19 +51,19 @@ async fn full_lifecycle_success() {
 
     // 2. Set up data_dir pointing to PP's storage (where .avin files live)
     let data_dir = tempfile::tempdir().unwrap();
-    let dataset_dir = data_dir.path().join("1");
+    let dataset_dir = data_dir.path().join(ds.to_string());
     std::fs::create_dir_all(&dataset_dir).unwrap();
 
     // Copy the .avin file from PP storage to agent's data dir
-    let avin_path = tmp_storage.path().join("1.avin");
-    std::fs::copy(&avin_path, dataset_dir.join("1.avin")).unwrap();
+    let avin_path = tmp_storage.path().join(format!("{}/data.csv.avin", ds));
+    std::fs::copy(&avin_path, dataset_dir.join("data.csv.avin")).unwrap();
 
     // 3. Set up output_dir
     let output_dir = tempfile::tempdir().unwrap();
 
     // 4. Issue credentials (separate nonces for key request and submit)
-    let credential = state.credential_service.issue("job-e2e", "alice", vec![1]);
-    let submit_credential = state.credential_service.issue("job-e2e", "alice", vec![1]);
+    let credential = state.credential_service.issue("job-e2e", "alice", vec![ds]);
+    let submit_credential = state.credential_service.issue("job-e2e", "alice", vec![ds]);
 
     // 5. Build and run agent
     let mut agent = Agent::new(
@@ -61,7 +71,7 @@ async fn full_lifecycle_success() {
         PpClient::new(&pp_url),
         credential,
         submit_credential,
-        vec![1],
+        vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
         decrypt_fs::DevMountBackend,
@@ -102,10 +112,12 @@ async fn lifecycle_key_failure_aborts() {
     let state = dev_state(tmp.path().to_str().unwrap());
     let pp_url = start_pp_server(state.clone()).await;
 
+    let ds = test_id(0x01);
+
     // Tampered credential → key acquisition fails
-    let mut credential = state.credential_service.issue("job-1", "alice", vec![1]);
+    let mut credential = state.credential_service.issue("job-1", "alice", vec![ds]);
     credential.job_id = "tampered".to_string();
-    let submit_credential = state.credential_service.issue("job-1", "alice", vec![1]);
+    let submit_credential = state.credential_service.issue("job-1", "alice", vec![ds]);
 
     let output_dir = tempfile::tempdir().unwrap();
     let data_dir = tempfile::tempdir().unwrap();
@@ -115,7 +127,7 @@ async fn lifecycle_key_failure_aborts() {
         PpClient::new(&pp_url),
         credential,
         submit_credential,
-        vec![1],
+        vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
         decrypt_fs::DevMountBackend,
@@ -140,10 +152,11 @@ async fn lifecycle_execution_failure_aborts() {
     let state = dev_state(tmp.path().to_str().unwrap());
     let pp_url = start_pp_server(state.clone()).await;
 
-    let credential = state.credential_service.issue("job-fail", "alice", vec![1]);
-    let submit_credential = state.credential_service.issue("job-fail", "alice", vec![1]);
+    let ds = test_id(0x01);
+    let credential = state.credential_service.issue("job-fail", "alice", vec![ds]);
+    let submit_credential = state.credential_service.issue("job-fail", "alice", vec![ds]);
     let data_dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(data_dir.path().join("1")).unwrap();
+    std::fs::create_dir_all(data_dir.path().join(ds.to_string())).unwrap();
     let output_dir = tempfile::tempdir().unwrap();
 
     let mut agent = Agent::new(
@@ -151,7 +164,7 @@ async fn lifecycle_execution_failure_aborts() {
         PpClient::new(&pp_url),
         credential,
         submit_credential,
-        vec![1],
+        vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
         decrypt_fs::DevMountBackend,
@@ -173,10 +186,11 @@ async fn lifecycle_result_encryption_valid() {
     let state = dev_state(tmp.path().to_str().unwrap());
     let pp_url = start_pp_server(state.clone()).await;
 
-    let credential = state.credential_service.issue("job-enc", "alice", vec![1]);
-    let submit_credential = state.credential_service.issue("job-enc", "alice", vec![1]);
+    let ds = test_id(0x01);
+    let credential = state.credential_service.issue("job-enc", "alice", vec![ds]);
+    let submit_credential = state.credential_service.issue("job-enc", "alice", vec![ds]);
     let data_dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(data_dir.path().join("1")).unwrap();
+    std::fs::create_dir_all(data_dir.path().join(ds.to_string())).unwrap();
     let output_dir = tempfile::tempdir().unwrap();
 
     let mut agent = Agent::new(
@@ -184,7 +198,7 @@ async fn lifecycle_result_encryption_valid() {
         PpClient::new(&pp_url),
         credential,
         submit_credential,
-        vec![1],
+        vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
         decrypt_fs::DevMountBackend,
@@ -226,11 +240,16 @@ async fn full_lifecycle_with_submit() {
     let state = dev_state(tmp_storage.path().to_str().unwrap());
     let pp_url = start_pp_server(state.clone()).await;
 
+    let ds = test_id(0x01);
+    let wallet = test_id(0xAA);
+
     // 1. Upload test data
+    let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
     let app = cced::api::router(state.clone());
     let req = axum::http::Request::builder()
         .method("POST")
-        .uri("/v1/datasets/1/upload")
+        .uri(&format!("/v1/datasets/{}/upload/data.csv", ds))
+        .header("authorization", format!("Bearer {}", token))
         .body(axum::body::Body::from(b"test data".to_vec()))
         .unwrap();
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
@@ -238,17 +257,17 @@ async fn full_lifecycle_with_submit() {
 
     // 2. Set up data dir
     let data_dir = tempfile::tempdir().unwrap();
-    let dataset_dir = data_dir.path().join("1");
+    let dataset_dir = data_dir.path().join(ds.to_string());
     std::fs::create_dir_all(&dataset_dir).unwrap();
-    let avin_path = tmp_storage.path().join("1.avin");
-    std::fs::copy(&avin_path, dataset_dir.join("1.avin")).unwrap();
+    let avin_path = tmp_storage.path().join(format!("{}/data.csv.avin", ds));
+    std::fs::copy(&avin_path, dataset_dir.join("data.csv.avin")).unwrap();
 
     // 3. Set up output dir
     let output_dir = tempfile::tempdir().unwrap();
 
     // 4. Issue credentials
-    let credential = state.credential_service.issue("job-submit", "alice", vec![1]);
-    let submit_credential = state.credential_service.issue("job-submit", "alice", vec![1]);
+    let credential = state.credential_service.issue("job-submit", "alice", vec![ds]);
+    let submit_credential = state.credential_service.issue("job-submit", "alice", vec![ds]);
 
     // 5. Run agent lifecycle (includes submit)
     let mut agent = Agent::new(
@@ -256,7 +275,7 @@ async fn full_lifecycle_with_submit() {
         PpClient::new(&pp_url),
         credential,
         submit_credential,
-        vec![1],
+        vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
         decrypt_fs::DevMountBackend,

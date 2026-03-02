@@ -1,3 +1,4 @@
+use key_manager::DatasetId;
 use compute_controller::JobCredential;
 use key_manager::ecdhe::WrappedKeyBundle;
 use key_manager::Key;
@@ -12,7 +13,7 @@ struct RequestKeysBody {
     request_id: String,
     quote: String,
     eph_pk: String,
-    dataset_ids: Vec<u64>,
+    dataset_ids: Vec<DatasetId>,
 }
 
 #[derive(Deserialize)]
@@ -56,7 +57,7 @@ impl PpClient {
         request_id: &[u8; 16],
         quote: &[u8],
         eph_pk: &[u8; 32],
-        dataset_ids: &[u64],
+        dataset_ids: &[DatasetId],
     ) -> Result<WrappedKeyBundle, AgentError> {
         let body = RequestKeysBody {
             credential: credential.clone(),
@@ -177,12 +178,14 @@ mod tests {
 
     #[test]
     fn request_body_serializes_hex() {
+        let ds1 = DatasetId::from([0x01; 20]);
+        let ds2 = DatasetId::from([0x02; 20]);
         let body = RequestKeysBody {
             credential: serde_json::from_value(serde_json::json!({
                 "version": 1,
                 "job_id": "job-1",
                 "user": "alice",
-                "datasets": [1],
+                "datasets": [ds1],
                 "nonce": "00000000000000000000000000000000",
                 "issued_at": 1000000,
                 "expires_at": 2000000,
@@ -192,13 +195,13 @@ mod tests {
             request_id: hex::encode([0x01; 16]),
             quote: hex::encode([0x02; 128]),
             eph_pk: hex::encode([0x03; 32]),
-            dataset_ids: vec![1, 2],
+            dataset_ids: vec![ds1, ds2],
         };
 
         let json = serde_json::to_value(&body).unwrap();
         assert_eq!(json["request_id"], hex::encode([0x01; 16]));
         assert_eq!(json["eph_pk"], hex::encode([0x03; 32]));
-        assert_eq!(json["dataset_ids"], serde_json::json!([1, 2]));
+        assert_eq!(json["dataset_ids"].as_array().unwrap().len(), 2);
     }
 
     #[test]

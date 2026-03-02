@@ -7,7 +7,11 @@ edition.workspace = true
 hkdf.workspace = true
 sha2.workspace = true
 hex.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 x25519-dalek = { workspace = true, features = ["static_secrets"] }
 aes-gcm.workspace = true
 rand.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

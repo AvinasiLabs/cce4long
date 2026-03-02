@@ -1,0 +1,17 @@
+name: Issue upload token - bad signature
+description: |-
+  Send a signature with wrong length (not 65 bytes).
+  Expected: 401 Unauthorized (signature must be 65 bytes).
+method: POST
+url: http://localhost:3000/v1/upload-token
+headers:
+  - name: Content-Type
+    value: application/json
+body:
+  content: |-
+    {
+      "wallet_address": "0x4242424242424242424242424242424242424242",
+      "dataset_id": "0x4242424242424242424242424242424242424242",
+      "signature": "0xdeadbeef",
+      "message": "Authorize upload"
+    }

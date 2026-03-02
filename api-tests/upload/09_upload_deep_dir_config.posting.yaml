@@ -1,5 +1,5 @@
-name: Upload empty body
-description: Edge case - upload with empty body. Requires a valid upload token.
+name: Upload pipeline config
+description: Upload a config file at the root level (config/pipeline.toml).
 method: POST
 url: http://localhost:3000/v1/datasets/:dataset_id/upload/:path
 headers:
@@ -8,9 +8,9 @@ headers:
   - name: Authorization
     value: Bearer $upload_token
 body:
-  content: ""
+  content: "[pipeline]\nname = \"sensor-etl\"\nversion = \"1.0\"\n\n[input]\nformat = \"csv\"\n\n[output]\nformat = \"json\""
 path_params:
   - name: dataset_id
     value: '0x4242424242424242424242424242424242424242'
   - name: path
-    value: 'empty.csv'
+    value: 'config/pipeline.toml'

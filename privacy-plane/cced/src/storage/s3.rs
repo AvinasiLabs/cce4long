@@ -59,6 +59,38 @@ impl Storage for S3Storage {
         );
         Ok(uri)
     }
+
+    async fn get(&self, key: &str) -> Result<Vec<u8>, StorageError> {
+        let response = self
+            .bucket
+            .get_object(key)
+            .await
+            .map_err(|e| StorageError::S3(e.to_string()))?;
+
+        let status = response.status_code();
+        if status != 200 {
+            return Err(StorageError::S3(format!(
+                "S3 get_object returned status {}",
+                status
+            )));
+        }
+        Ok(response.to_vec())
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<String>, StorageError> {
+        let results = self
+            .bucket
+            .list(prefix.to_string(), None)
+            .await
+            .map_err(|e| StorageError::S3(e.to_string()))?;
+
+        let mut keys: Vec<String> = results
+            .into_iter()
+            .flat_map(|page| page.contents.into_iter().map(|obj| obj.key))
+            .collect();
+        keys.sort();
+        Ok(keys)
+    }
 }
 
 #[cfg(test)]

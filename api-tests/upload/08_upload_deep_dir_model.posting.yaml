@@ -1,5 +1,5 @@
-name: Upload empty body
-description: Edge case - upload with empty body. Requires a valid upload token.
+name: Upload model weights
+description: Upload a model file to a deep path (models/v1/weights.bin).
 method: POST
 url: http://localhost:3000/v1/datasets/:dataset_id/upload/:path
 headers:
@@ -8,9 +8,9 @@ headers:
   - name: Authorization
     value: Bearer $upload_token
 body:
-  content: ""
+  content: "FAKE_MODEL_WEIGHTS_BINARY_DATA_0123456789abcdef"
 path_params:
   - name: dataset_id
     value: '0x4242424242424242424242424242424242424242'
   - name: path
-    value: 'empty.csv'
+    value: 'models/v1/weights.bin'

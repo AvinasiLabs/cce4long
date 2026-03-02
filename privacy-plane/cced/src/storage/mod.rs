@@ -19,4 +19,10 @@ pub enum StorageError {
 pub trait Storage: Send + Sync {
     /// Store data under the given key. Returns the stored path/identifier.
     async fn put(&self, key: &str, data: &[u8]) -> Result<String, StorageError>;
+
+    /// Retrieve data stored under the given key.
+    async fn get(&self, key: &str) -> Result<Vec<u8>, StorageError>;
+
+    /// List all keys under the given prefix.
+    async fn list(&self, prefix: &str) -> Result<Vec<String>, StorageError>;
 }

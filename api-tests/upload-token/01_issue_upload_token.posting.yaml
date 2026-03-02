@@ -1,0 +1,18 @@
+name: Issue upload token
+description: |-
+  Request an upload token using a test wallet's EIP-191 signature.
+  Uses test wallet from posting.env (no real funds, safe to publish).
+  Expected: 200 OK with { token, expires_in }.
+method: POST
+url: http://localhost:3000/v1/upload-token
+headers:
+  - name: Content-Type
+    value: application/json
+body:
+  content: |-
+    {
+      "wallet_address": "$test_wallet",
+      "dataset_id": "$dataset_id",
+      "signature": "$test_signature",
+      "message": "$test_message"
+    }

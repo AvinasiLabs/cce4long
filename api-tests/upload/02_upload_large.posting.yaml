@@ -1,12 +1,16 @@
 name: Upload large dataset
-description: Upload a larger payload to test multi-chunk encryption.
+description: Upload a larger payload to test multi-chunk encryption. Requires a valid upload token.
 method: POST
-url: http://localhost:3000/v1/datasets/:dataset_id/upload
+url: http://localhost:3000/v1/datasets/:dataset_id/upload/:path
 headers:
   - name: Content-Type
     value: application/octet-stream
+  - name: Authorization
+    value: Bearer $upload_token
 body:
   content: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 path_params:
   - name: dataset_id
-    value: '42'
+    value: '0x4242424242424242424242424242424242424242'
+  - name: path
+    value: 'large_data.csv'

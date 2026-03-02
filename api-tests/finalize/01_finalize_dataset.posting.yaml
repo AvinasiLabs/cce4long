@@ -1,0 +1,14 @@
+name: Finalize dataset
+description: |-
+  Mark a dataset as fully uploaded. cced scans all files, computes the receipt,
+  and transitions the dataset to "ready" state.
+  Requires a valid upload token for this dataset.
+  Expected: 200 OK with { dataset_id, status: "ready", receipt }.
+method: POST
+url: http://localhost:3000/v1/datasets/:dataset_id/finalize
+headers:
+  - name: Authorization
+    value: Bearer $upload_token
+path_params:
+  - name: dataset_id
+    value: '0x4242424242424242424242424242424242424242'

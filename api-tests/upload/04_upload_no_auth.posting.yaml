@@ -1,16 +1,16 @@
-name: Upload empty body
-description: Edge case - upload with empty body. Requires a valid upload token.
+name: Upload without auth
+description: |-
+  Attempt to upload without an Authorization header.
+  Expected: 401 Unauthorized.
 method: POST
 url: http://localhost:3000/v1/datasets/:dataset_id/upload/:path
 headers:
   - name: Content-Type
     value: application/octet-stream
-  - name: Authorization
-    value: Bearer $upload_token
 body:
-  content: ""
+  content: "should be rejected"
 path_params:
   - name: dataset_id
     value: '0x4242424242424242424242424242424242424242'
   - name: path
-    value: 'empty.csv'
+    value: 'data.csv'

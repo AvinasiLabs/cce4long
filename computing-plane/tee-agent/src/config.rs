@@ -1,3 +1,4 @@
+use key_manager::DatasetId;
 use compute_controller::JobCredential;
 
 use crate::error::AgentError;
@@ -7,7 +8,7 @@ pub struct AgentConfig {
     pub pp_url: String,
     pub credential: JobCredential,
     pub submit_credential: JobCredential,
-    pub dataset_ids: Vec<u64>,
+    pub dataset_ids: Vec<DatasetId>,
     pub data_dir: String,
     pub output_dir: String,
 }
@@ -18,7 +19,7 @@ impl AgentConfig {
     /// Required:
     /// - `TEE_AGENT_PP_URL`: URL of the privacy plane (e.g. "http://localhost:3000")
     /// - `TEE_AGENT_CREDENTIAL`: JSON-serialized JobCredential
-    /// - `TEE_AGENT_DATASET_IDS`: comma-separated dataset IDs (e.g. "1,2,3")
+    /// - `TEE_AGENT_DATASET_IDS`: comma-separated dataset IDs as hex addresses (e.g. "0x1234...,0xabcd...")
     ///
     /// Optional (with defaults):
     /// - `TEE_AGENT_DATA_DIR`: directory for encrypted data (default: "/data")
@@ -58,11 +59,11 @@ fn required_env(name: &str) -> Result<String, AgentError> {
         .map_err(|_| AgentError::Config(format!("missing environment variable: {name}")))
 }
 
-fn parse_dataset_ids(s: &str) -> Result<Vec<u64>, AgentError> {
+fn parse_dataset_ids(s: &str) -> Result<Vec<DatasetId>, AgentError> {
     s.split(',')
         .map(|part| {
             part.trim()
-                .parse::<u64>()
+                .parse::<DatasetId>()
                 .map_err(|e| AgentError::Config(format!("invalid dataset ID '{part}': {e}")))
         })
         .collect()
@@ -94,7 +95,7 @@ mod tests {
             "version": 1,
             "job_id": "job-1",
             "user": "alice",
-            "datasets": [1, 2],
+            "datasets": ["0x0101010101010101010101010101010101010101", "0x0202020202020202020202020202020202020202"],
             "nonce": "00000000000000000000000000000000",
             "issued_at": 1000000,
             "expires_at": 2000000,
@@ -112,7 +113,10 @@ mod tests {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
-            std::env::set_var("TEE_AGENT_DATASET_IDS", "1,2,3");
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x0101010101010101010101010101010101010101,0x0202020202020202020202020202020202020202,0x0303030303030303030303030303030303030303",
+            );
             std::env::set_var("TEE_AGENT_DATA_DIR", "/tmp/data");
             std::env::set_var("TEE_AGENT_OUTPUT_DIR", "/tmp/output");
         }
@@ -121,7 +125,8 @@ mod tests {
         assert_eq!(config.pp_url, "http://localhost:3000");
         assert_eq!(config.credential.job_id, "job-1");
         assert_eq!(config.submit_credential.job_id, "job-1");
-        assert_eq!(config.dataset_ids, vec![1, 2, 3]);
+        assert_eq!(config.dataset_ids.len(), 3);
+        assert_eq!(config.dataset_ids[0], DatasetId::from([0x01; 20]));
         assert_eq!(config.data_dir, "/tmp/data");
         assert_eq!(config.output_dir, "/tmp/output");
 
@@ -137,13 +142,16 @@ mod tests {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
-            std::env::set_var("TEE_AGENT_DATASET_IDS", "42");
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x4242424242424242424242424242424242424242",
+            );
         }
 
         let config = AgentConfig::from_env().unwrap();
         assert_eq!(config.data_dir, "/data");
         assert_eq!(config.output_dir, "/output");
-        assert_eq!(config.dataset_ids, vec![42]);
+        assert_eq!(config.dataset_ids.len(), 1);
 
         clear_env();
     }
@@ -156,7 +164,10 @@ mod tests {
         unsafe {
             std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
-            std::env::set_var("TEE_AGENT_DATASET_IDS", "1");
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x0101010101010101010101010101010101010101",
+            );
         }
 
         let err = AgentConfig::from_env().unwrap_err();
@@ -173,7 +184,10 @@ mod tests {
         unsafe {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
-            std::env::set_var("TEE_AGENT_DATASET_IDS", "1");
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x0101010101010101010101010101010101010101",
+            );
         }
 
         let err = AgentConfig::from_env().unwrap_err();
@@ -191,7 +205,10 @@ mod tests {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_CREDENTIAL", "not-json");
             std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
-            std::env::set_var("TEE_AGENT_DATASET_IDS", "1");
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x0101010101010101010101010101010101010101",
+            );
         }
 
         let err = AgentConfig::from_env().unwrap_err();
@@ -209,7 +226,10 @@ mod tests {
             std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
             std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
             std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
-            std::env::set_var("TEE_AGENT_DATASET_IDS", "1,abc,3");
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x0101010101010101010101010101010101010101,abc,0x0303030303030303030303030303030303030303",
+            );
         }
 
         let err = AgentConfig::from_env().unwrap_err();
@@ -220,8 +240,12 @@ mod tests {
 
     #[test]
     fn parse_dataset_ids_valid() {
-        assert_eq!(parse_dataset_ids("1,2,3").unwrap(), vec![1, 2, 3]);
-        assert_eq!(parse_dataset_ids("42").unwrap(), vec![42]);
-        assert_eq!(parse_dataset_ids(" 1 , 2 ").unwrap(), vec![1, 2]);
+        let ids = parse_dataset_ids(
+            "0x0101010101010101010101010101010101010101, 0x0202020202020202020202020202020202020202",
+        )
+        .unwrap();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], DatasetId::from([0x01; 20]));
+        assert_eq!(ids[1], DatasetId::from([0x02; 20]));
     }
 }

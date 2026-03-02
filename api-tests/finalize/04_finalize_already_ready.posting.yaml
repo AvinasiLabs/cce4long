@@ -1,0 +1,12 @@
+name: Finalize already finalized
+description: |-
+  Attempt to finalize a dataset that is already in "ready" state.
+  Expected: 409 Conflict (DatasetAlreadyFinalized).
+method: POST
+url: http://localhost:3000/v1/datasets/:dataset_id/finalize
+headers:
+  - name: Authorization
+    value: Bearer $upload_token
+path_params:
+  - name: dataset_id
+    value: '0x4242424242424242424242424242424242424242'

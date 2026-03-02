@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use key_manager::DatasetId;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ pub struct JobCredential {
     pub version: u8,
     pub job_id: String,
     pub user: String,
-    pub datasets: Vec<u64>,
+    pub datasets: Vec<DatasetId>,
     #[serde(with = "hex_bytes_16")]
     pub nonce: [u8; 16],
     pub issued_at: u64,
@@ -79,7 +80,7 @@ impl CredentialService {
         &self,
         job_id: &str,
         user: &str,
-        datasets: Vec<u64>,
+        datasets: Vec<DatasetId>,
     ) -> JobCredential {
         let mut nonce = [0u8; 16];
         rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce);
@@ -139,8 +140,8 @@ impl CredentialService {
         mac.update(&[cred.version]);
         mac.update(cred.job_id.as_bytes());
         mac.update(cred.user.as_bytes());
-        for &ds in &cred.datasets {
-            mac.update(&ds.to_be_bytes());
+        for ds in &cred.datasets {
+            mac.update(ds.as_ref());
         }
         mac.update(&cred.nonce);
         mac.update(&cred.issued_at.to_be_bytes());
@@ -157,17 +158,25 @@ mod tests {
         CredentialService::from_root_key(&[0xAA; 32]).unwrap()
     }
 
+    fn test_dataset_id(val: u8) -> DatasetId {
+        DatasetId::from([val; 20])
+    }
+
+    fn test_datasets() -> Vec<DatasetId> {
+        vec![test_dataset_id(0x01), test_dataset_id(0x02)]
+    }
+
     #[test]
     fn issue_and_verify_roundtrip() {
         let svc = test_service();
-        let cred = svc.issue("job-1", "alice", vec![1, 2]);
+        let cred = svc.issue("job-1", "alice", test_datasets());
         assert!(svc.verify_and_consume(&cred).is_ok());
     }
 
     #[test]
     fn tampered_job_id_fails() {
         let svc = test_service();
-        let mut cred = svc.issue("job-1", "alice", vec![1]);
+        let mut cred = svc.issue("job-1", "alice", vec![test_dataset_id(0x01)]);
         cred.job_id = "job-2".to_string();
         assert!(matches!(
             svc.verify_and_consume(&cred),
@@ -178,8 +187,8 @@ mod tests {
     #[test]
     fn tampered_datasets_fails() {
         let svc = test_service();
-        let mut cred = svc.issue("job-1", "alice", vec![1, 2]);
-        cred.datasets = vec![1, 2, 3];
+        let mut cred = svc.issue("job-1", "alice", test_datasets());
+        cred.datasets = vec![test_dataset_id(0x01), test_dataset_id(0x02), test_dataset_id(0x03)];
         assert!(matches!(
             svc.verify_and_consume(&cred),
             Err(ControllerError::InvalidSignature)
@@ -189,7 +198,7 @@ mod tests {
     #[test]
     fn tampered_user_fails() {
         let svc = test_service();
-        let mut cred = svc.issue("job-1", "alice", vec![1]);
+        let mut cred = svc.issue("job-1", "alice", vec![test_dataset_id(0x01)]);
         cred.user = "bob".to_string();
         assert!(matches!(
             svc.verify_and_consume(&cred),
@@ -200,10 +209,8 @@ mod tests {
     #[test]
     fn expired_credential_rejected() {
         let svc = test_service();
-        let mut cred = svc.issue("job-1", "alice", vec![1]);
-        // Force expiration in the past
+        let mut cred = svc.issue("job-1", "alice", vec![test_dataset_id(0x01)]);
         cred.expires_at = 0;
-        // Re-sign with correct expiration
         cred.signature = svc.sign(&cred);
         assert!(matches!(
             svc.verify_and_consume(&cred),
@@ -214,7 +221,7 @@ mod tests {
     #[test]
     fn nonce_replay_rejected() {
         let svc = test_service();
-        let cred = svc.issue("job-1", "alice", vec![1]);
+        let cred = svc.issue("job-1", "alice", vec![test_dataset_id(0x01)]);
         assert!(svc.verify_and_consume(&cred).is_ok());
         assert!(matches!(
             svc.verify_and_consume(&cred),
@@ -225,21 +232,20 @@ mod tests {
     #[test]
     fn two_issues_have_different_nonces() {
         let svc = test_service();
-        let c1 = svc.issue("job-1", "alice", vec![1]);
-        let c2 = svc.issue("job-1", "alice", vec![1]);
+        let c1 = svc.issue("job-1", "alice", vec![test_dataset_id(0x01)]);
+        let c2 = svc.issue("job-1", "alice", vec![test_dataset_id(0x01)]);
         assert_ne!(c1.nonce, c2.nonce);
     }
 
     #[test]
     fn serde_json_roundtrip() {
         let svc = test_service();
-        let cred = svc.issue("job-1", "alice", vec![1, 2]);
+        let cred = svc.issue("job-1", "alice", test_datasets());
         let json = serde_json::to_string(&cred).unwrap();
         let deserialized: JobCredential = serde_json::from_str(&json).unwrap();
         assert_eq!(cred.job_id, deserialized.job_id);
         assert_eq!(cred.nonce, deserialized.nonce);
         assert_eq!(cred.signature, deserialized.signature);
-        // Verify deserialized credential is still valid
         assert!(svc.verify_and_consume(&deserialized).is_ok());
     }
 
@@ -247,7 +253,7 @@ mod tests {
     fn different_root_key_cannot_verify() {
         let svc1 = CredentialService::from_root_key(&[0xAA; 32]).unwrap();
         let svc2 = CredentialService::from_root_key(&[0xBB; 32]).unwrap();
-        let cred = svc1.issue("job-1", "alice", vec![1]);
+        let cred = svc1.issue("job-1", "alice", vec![test_dataset_id(0x01)]);
         assert!(matches!(
             svc2.verify_and_consume(&cred),
             Err(ControllerError::InvalidSignature)

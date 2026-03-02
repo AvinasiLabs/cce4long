@@ -1,5 +1,8 @@
 pub mod ecdhe;
 
+mod dataset_id;
+pub use dataset_id::{DatasetId, DatasetIdError};
+
 use hkdf::Hkdf;
 use sha2::Sha256;
 use thiserror::Error;
@@ -76,14 +79,24 @@ impl<R: RootKeyProvider> KeyManager<R> {
     }
 
     /// Derive a Data Encryption Key for the given dataset.
-    /// HKDF-SHA256(ikm=root_key, salt=dataset_id.to_be_bytes(), info="dataset-encryption")
-    pub fn derive_dek(&self, dataset_id: u64) -> Result<Key, KeyError> {
-        let salt = dataset_id.to_be_bytes();
-        let hk = Hkdf::<Sha256>::new(Some(&salt), self.root.root_key());
+    /// HKDF-SHA256(ikm=root_key, salt=dataset_id(20 bytes), info="dataset-encryption")
+    pub fn derive_dek(&self, dataset_id: &DatasetId) -> Result<Key, KeyError> {
+        let salt = dataset_id.as_ref();
+        let hk = Hkdf::<Sha256>::new(Some(salt.as_slice()), self.root.root_key());
         let mut dek = [0u8; 32];
         hk.expand(b"dataset-encryption", &mut dek)
             .map_err(|_| KeyError::DerivationFailed)?;
         Ok(Key(dek))
+    }
+
+    /// Derive an HMAC signing key for upload tokens.
+    /// HKDF-SHA256(ikm=root_key, info="upload-token-signing")
+    pub fn derive_upload_hmac_key(&self) -> Result<[u8; 32], KeyError> {
+        let hk = Hkdf::<Sha256>::new(None, self.root.root_key());
+        let mut hmac_key = [0u8; 32];
+        hk.expand(b"upload-token-signing", &mut hmac_key)
+            .map_err(|_| KeyError::DerivationFailed)?;
+        Ok(hmac_key)
     }
 
     /// Derive a Result Encryption Key for the given job.
@@ -109,26 +122,31 @@ mod tests {
         }
     }
 
+    fn test_dataset_id(val: u8) -> DatasetId {
+        DatasetId::from([val; 20])
+    }
+
     #[test]
     fn derive_dek_is_deterministic() {
         let km = KeyManager::new(FixedKeyProvider([0xAA; 32]));
-        let k1 = km.derive_dek(1).unwrap();
-        let k2 = km.derive_dek(1).unwrap();
+        let id = test_dataset_id(0x01);
+        let k1 = km.derive_dek(&id).unwrap();
+        let k2 = km.derive_dek(&id).unwrap();
         assert_eq!(k1.0, k2.0);
     }
 
     #[test]
     fn different_dataset_ids_produce_different_deks() {
         let km = KeyManager::new(FixedKeyProvider([0xAA; 32]));
-        let k1 = km.derive_dek(1).unwrap();
-        let k2 = km.derive_dek(2).unwrap();
+        let k1 = km.derive_dek(&test_dataset_id(0x01)).unwrap();
+        let k2 = km.derive_dek(&test_dataset_id(0x02)).unwrap();
         assert_ne!(k1.0, k2.0);
     }
 
     #[test]
     fn dek_is_32_bytes() {
         let km = KeyManager::new(FixedKeyProvider([0xBB; 32]));
-        let k = km.derive_dek(42).unwrap();
+        let k = km.derive_dek(&test_dataset_id(0x42)).unwrap();
         assert_eq!(k.0.len(), 32);
     }
 
@@ -163,8 +181,16 @@ mod tests {
         // Even if the salt bytes happen to be the same, different info strings
         // must produce different keys.
         let km = KeyManager::new(FixedKeyProvider([0xCC; 32]));
-        let dek = km.derive_dek(1).unwrap();
+        let dek = km.derive_dek(&test_dataset_id(0x01)).unwrap();
         let rek = km.derive_rek("job-1").unwrap();
         assert_ne!(dek.0, rek.0);
+    }
+
+    #[test]
+    fn derive_upload_hmac_key_is_deterministic() {
+        let km = KeyManager::new(FixedKeyProvider([0xAA; 32]));
+        let k1 = km.derive_upload_hmac_key().unwrap();
+        let k2 = km.derive_upload_hmac_key().unwrap();
+        assert_eq!(k1, k2);
     }
 }

@@ -1,5 +1,0 @@
-name: dev
-variables:
-  host: http://localhost:3000
-  dataset_id: "1"
-  job_id: "test-job-1"
