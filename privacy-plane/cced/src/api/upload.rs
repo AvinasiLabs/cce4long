@@ -22,9 +22,12 @@ pub async fn upload_dataset(
     Path(dataset_id): Path<u64>,
     body: Bytes,
 ) -> Result<Json<UploadResponse>, ApiError> {
+    tracing::info!(dataset_id = dataset_id, body_size = body.len(), "upload_dataset called");
+
     let dek = state.key_manager.derive_dek(dataset_id)?;
 
     let encrypted = encrypt_chunked(&dek, &body)?;
+    tracing::debug!(dataset_id = dataset_id, encrypted_size = encrypted.len(), "encryption complete");
 
     let chunk_count = if body.is_empty() {
         0
@@ -34,6 +37,13 @@ pub async fn upload_dataset(
 
     let key = format!("{}.avin", dataset_id);
     let stored_path = state.storage.put(&key, &encrypted).await?;
+
+    tracing::info!(
+        dataset_id = dataset_id,
+        stored_path = %stored_path,
+        chunks = chunk_count,
+        "upload_dataset complete"
+    );
 
     Ok(Json(UploadResponse {
         dataset_id,

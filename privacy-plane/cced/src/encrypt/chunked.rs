@@ -84,24 +84,11 @@ pub fn decrypt_chunked(dek: &Key, data: &[u8]) -> Result<Vec<u8>, EncryptError> 
         let iv = &data[pos..pos + IV_SIZE];
         pos += IV_SIZE;
 
-        // Find the end of this chunk's ciphertext+tag.
-        // We know max plaintext per chunk is CHUNK_SIZE, so max ciphertext+tag is CHUNK_SIZE + TAG_SIZE.
-        // But for the last chunk it could be smaller. We need to figure out chunk boundaries.
-        // Since ciphertext = plaintext_len + TAG_SIZE, and we don't store plaintext_len explicitly,
-        // we compute: remaining_chunks_after_this = chunk_count - (current_chunk_index + 1)
-        // For simplicity, for intermediate chunks the ciphertext size is CHUNK_SIZE + TAG_SIZE.
-        // For the last chunk, it's whatever remains.
-
-        // Actually, let's just compute based on position:
-        // We know total chunks. All but last have ciphertext size = CHUNK_SIZE + TAG_SIZE.
-        // Last chunk: remaining bytes.
-        let remaining_chunks_after = chunk_count - (plaintext.len() / CHUNK_SIZE + 1).min(chunk_count);
-        let _ = remaining_chunks_after; // not needed with the approach below
-
-        // Better approach: parse forward, knowing that all chunks except possibly the last
-        // have CHUNK_SIZE bytes of plaintext, meaning CHUNK_SIZE + TAG_SIZE bytes of ciphertext.
-        let is_possibly_last = pos + CHUNK_SIZE + TAG_SIZE >= data.len();
-        let ct_len = if is_possibly_last {
+        // All chunks except the last have exactly CHUNK_SIZE plaintext,
+        // producing CHUNK_SIZE + TAG_SIZE bytes of ciphertext.
+        // The last chunk takes whatever bytes remain.
+        let is_last_chunk = pos + CHUNK_SIZE + TAG_SIZE >= data.len();
+        let ct_len = if is_last_chunk {
             data.len() - pos
         } else {
             CHUNK_SIZE + TAG_SIZE

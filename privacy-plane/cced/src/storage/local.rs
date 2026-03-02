@@ -28,6 +28,13 @@ impl Storage for LocalStorage {
         tokio::fs::write(&path, data)
             .await
             .map_err(|e| StorageError::Io(e.to_string()))?;
-        Ok(path.to_string_lossy().into_owned())
+        let stored = path.to_string_lossy().into_owned();
+        tracing::info!(
+            key = key,
+            path = %stored,
+            size_bytes = data.len(),
+            "local put succeeded"
+        );
+        Ok(stored)
     }
 }

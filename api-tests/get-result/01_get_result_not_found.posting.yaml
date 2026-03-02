@@ -1,0 +1,17 @@
+name: Get result - job not found
+description: |-
+  Request result for a non-existent job_id.
+  Expected: 404 Not Found.
+method: POST
+url: http://localhost:3000/v1/results/:job_id
+headers:
+  - name: Content-Type
+    value: application/json
+body:
+  content: |-
+    {
+      "user_eph_pk": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+path_params:
+  - name: job_id
+    value: 'nonexistent-job-12345'

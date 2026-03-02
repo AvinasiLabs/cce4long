@@ -1,0 +1,17 @@
+name: Get result - bad eph_pk hex
+description: |-
+  Send invalid hex in user_eph_pk.
+  Note: will hit "job not found" first if job doesn't exist.
+method: POST
+url: http://localhost:3000/v1/results/:job_id
+headers:
+  - name: Content-Type
+    value: application/json
+body:
+  content: |-
+    {
+      "user_eph_pk": "ZZZZ-NOT-HEX"
+    }
+path_params:
+  - name: job_id
+    value: 'some-job'

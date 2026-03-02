@@ -1,0 +1,27 @@
+name: Submit result - bad result_hash
+description: |-
+  Send invalid hex in result_hash.
+  Expected: 400 Bad Request.
+method: POST
+url: http://localhost:3000/v1/results/submit
+headers:
+  - name: Content-Type
+    value: application/json
+body:
+  content: |-
+    {
+      "credential": {
+        "version": 1,
+        "job_id": "test-job",
+        "user": "alice",
+        "datasets": [1],
+        "nonce": "00000000000000000000000000000000",
+        "issued_at": 9999999999,
+        "expires_at": 9999999999,
+        "signature": "deadbeef"
+      },
+      "job_id": "test-job",
+      "result_path": "/tmp/result.tar",
+      "result_hash": "NOT-HEX!",
+      "quote": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }

@@ -28,6 +28,8 @@ thiserror.workspace = true
 async-trait.workspace = true
 sha2.workspace = true
 hex.workspace = true
+rust-s3 = "0.37.1"
+dotenvy = "0.15.7"
 
 [dev-dependencies]
 x25519-dalek = { workspace = true, features = ["static_secrets"] }

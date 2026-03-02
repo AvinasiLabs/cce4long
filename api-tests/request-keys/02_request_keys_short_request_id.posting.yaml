@@ -1,0 +1,27 @@
+name: Request keys - short request_id
+description: |-
+  Send a request_id that is valid hex but wrong length (< 16 bytes).
+  Expected: 400 Bad Request.
+method: POST
+url: http://localhost:3000/v1/keys/request
+headers:
+  - name: Content-Type
+    value: application/json
+body:
+  content: |-
+    {
+      "credential": {
+        "version": 1,
+        "job_id": "test-job",
+        "user": "alice",
+        "datasets": [1],
+        "nonce": "00000000000000000000000000000000",
+        "issued_at": 9999999999,
+        "expires_at": 9999999999,
+        "signature": "deadbeef"
+      },
+      "request_id": "aabb",
+      "quote": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "eph_pk": "0000000000000000000000000000000000000000000000000000000000000000",
+      "dataset_ids": [1]
+    }

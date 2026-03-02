@@ -51,11 +51,13 @@ impl IntoResponse for ApiError {
                     output_gate::OutputGateError::NotApproved(_) => (StatusCode::FORBIDDEN, e.to_string()),
                     output_gate::OutputGateError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
                 };
+                tracing::warn!(status = %status, error = %msg, "API error response");
                 return (status, axum::Json(json!({ "error": msg }))).into_response();
             }
             ApiError::InvalidResultHash => (StatusCode::BAD_REQUEST, "invalid result_hash: expected 64 hex chars (32 bytes)".into()),
             ApiError::ResultNotApproved => (StatusCode::FORBIDDEN, "result not approved".into()),
         };
+        tracing::warn!(status = %status, error = %msg, "API error response");
         (status, axum::Json(json!({ "error": msg }))).into_response()
     }
 }
