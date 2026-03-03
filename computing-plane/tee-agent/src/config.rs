@@ -43,6 +43,23 @@ impl AgentConfig {
         let output_dir =
             std::env::var("TEE_AGENT_OUTPUT_DIR").unwrap_or_else(|_| "/output".to_string());
 
+        // Validate paths and URL
+        if !data_dir.starts_with('/') {
+            return Err(AgentError::Config(format!(
+                "data_dir must be an absolute path, got: {data_dir}"
+            )));
+        }
+        if !output_dir.starts_with('/') {
+            return Err(AgentError::Config(format!(
+                "output_dir must be an absolute path, got: {output_dir}"
+            )));
+        }
+        if !pp_url.starts_with("http://") && !pp_url.starts_with("https://") {
+            return Err(AgentError::Config(format!(
+                "pp_url must start with http:// or https://, got: {pp_url}"
+            )));
+        }
+
         Ok(Self {
             pp_url,
             credential,
@@ -247,5 +264,70 @@ mod tests {
         assert_eq!(ids.len(), 2);
         assert_eq!(ids[0], DatasetId::from([0x01; 20]));
         assert_eq!(ids[1], DatasetId::from([0x02; 20]));
+    }
+
+    #[test]
+    fn relative_data_dir_rejected() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+
+        unsafe {
+            std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
+            std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x0101010101010101010101010101010101010101",
+            );
+            std::env::set_var("TEE_AGENT_DATA_DIR", "relative/path");
+        }
+
+        let err = AgentConfig::from_env().unwrap_err();
+        assert!(err.to_string().contains("absolute path"));
+
+        clear_env();
+    }
+
+    #[test]
+    fn relative_output_dir_rejected() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+
+        unsafe {
+            std::env::set_var("TEE_AGENT_PP_URL", "http://localhost:3000");
+            std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x0101010101010101010101010101010101010101",
+            );
+            std::env::set_var("TEE_AGENT_OUTPUT_DIR", "relative/output");
+        }
+
+        let err = AgentConfig::from_env().unwrap_err();
+        assert!(err.to_string().contains("absolute path"));
+
+        clear_env();
+    }
+
+    #[test]
+    fn pp_url_without_http_rejected() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+
+        unsafe {
+            std::env::set_var("TEE_AGENT_PP_URL", "ftp://example.com");
+            std::env::set_var("TEE_AGENT_CREDENTIAL", sample_credential_json());
+            std::env::set_var("TEE_AGENT_SUBMIT_CREDENTIAL", sample_credential_json());
+            std::env::set_var(
+                "TEE_AGENT_DATASET_IDS",
+                "0x0101010101010101010101010101010101010101",
+            );
+        }
+
+        let err = AgentConfig::from_env().unwrap_err();
+        assert!(err.to_string().contains("http://"));
+
+        clear_env();
     }
 }

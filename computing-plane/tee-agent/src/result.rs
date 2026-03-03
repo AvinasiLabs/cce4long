@@ -168,4 +168,58 @@ mod tests {
 
         assert_eq!(hash_ab, hash_ba);
     }
+
+    // --- T1: write_encrypted_files tests ---
+
+    #[test]
+    fn write_encrypted_files_creates_avin_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let files = vec![
+            EncryptedFile { filename: "out1.csv".into(), data: vec![0xAA; 32] },
+            EncryptedFile { filename: "out2.bin".into(), data: vec![0xBB; 16] },
+        ];
+        write_encrypted_files(&files, tmp.path().to_str().unwrap()).unwrap();
+
+        let written1 = fs::read(tmp.path().join("out1.csv.avin")).unwrap();
+        assert_eq!(written1, vec![0xAA; 32]);
+
+        let written2 = fs::read(tmp.path().join("out2.bin.avin")).unwrap();
+        assert_eq!(written2, vec![0xBB; 16]);
+    }
+
+    #[test]
+    fn write_encrypted_files_empty_list_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_encrypted_files(&[], tmp.path().to_str().unwrap()).unwrap();
+        // No files created
+        let entries: Vec<_> = fs::read_dir(tmp.path()).unwrap().collect();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn write_encrypted_files_missing_dir_errors() {
+        let files = vec![
+            EncryptedFile { filename: "a.csv".into(), data: vec![1, 2, 3] },
+        ];
+        let err = write_encrypted_files(&files, "/nonexistent/path/xyz").unwrap_err();
+        assert!(err.to_string().contains("write"));
+    }
+
+    // --- T2: result hash boundary tests ---
+
+    #[test]
+    fn result_hash_empty_files() {
+        use sha2::{Digest, Sha256};
+        let hash = compute_result_hash(&[]);
+        let expected: [u8; 32] = Sha256::new().finalize().into();
+        assert_eq!(hash, expected);
+    }
+
+    #[test]
+    fn result_hash_single_file_deterministic() {
+        let f = || EncryptedFile { filename: "data.csv".into(), data: vec![0x42; 64] };
+        let h1 = compute_result_hash(&[f()]);
+        let h2 = compute_result_hash(&[f()]);
+        assert_eq!(h1, h2);
+    }
 }

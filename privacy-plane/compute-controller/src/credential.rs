@@ -259,4 +259,26 @@ mod tests {
             Err(ControllerError::InvalidSignature)
         ));
     }
+
+    #[test]
+    fn empty_datasets_issue_and_verify() {
+        let svc = test_service();
+        let cred = svc.issue("job-empty", "alice", vec![]);
+        assert!(cred.datasets.is_empty());
+        assert!(svc.verify_and_consume(&cred).is_ok());
+    }
+
+    #[test]
+    fn all_zero_dataset_id_issue_and_verify() {
+        let svc = test_service();
+        let cred = svc.issue("job-zero", "alice", vec![DatasetId::from([0x00; 20])]);
+        assert!(svc.verify_and_consume(&cred).is_ok());
+    }
+
+    #[test]
+    fn all_ff_dataset_id_issue_and_verify() {
+        let svc = test_service();
+        let cred = svc.issue("job-ff", "alice", vec![DatasetId::from([0xFF; 20])]);
+        assert!(svc.verify_and_consume(&cred).is_ok());
+    }
 }

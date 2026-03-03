@@ -27,33 +27,45 @@ impl<P: ReviewPolicy> OutputGateService<P> {
         result_path: &str,
         result_hash: [u8; 32],
     ) -> Result<ResultStatus, OutputGateError> {
-        // Check for duplicate submission
+        // Reserve the slot atomically: check + insert in one lock scope to prevent TOCTOU.
         {
-            let records = self.records.lock().unwrap();
-            if records.contains_key(job_id) {
-                return Err(OutputGateError::AlreadySubmitted(job_id.to_string()));
+            let mut records = self.records.lock().unwrap();
+            use std::collections::hash_map::Entry;
+            match records.entry(job_id.to_string()) {
+                Entry::Occupied(_) => {
+                    return Err(OutputGateError::AlreadySubmitted(job_id.to_string()));
+                }
+                Entry::Vacant(slot) => {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    slot.insert(ResultRecord {
+                        job_id: job_id.to_string(),
+                        result_path: result_path.to_string(),
+                        result_hash,
+                        status: ResultStatus::PendingReview,
+                        submitted_at: now,
+                    });
+                }
             }
         }
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        let mut record = ResultRecord {
-            job_id: job_id.to_string(),
-            result_path: result_path.to_string(),
-            result_hash,
-            status: ResultStatus::PendingReview,
-            submitted_at: now,
+        // Run review policy outside the lock.
+        let record_snapshot = {
+            let records = self.records.lock().unwrap();
+            records.get(job_id).cloned().unwrap()
         };
+        let decision = self.review_policy.review(&record_snapshot).await;
 
-        // Run review policy
-        let decision = self.review_policy.review(&record).await;
-        record.status = decision.clone();
-
-        let status = record.status.clone();
-        self.records.lock().unwrap().insert(job_id.to_string(), record);
+        // Update status with the decision.
+        let status = {
+            let mut records = self.records.lock().unwrap();
+            if let Some(rec) = records.get_mut(job_id) {
+                rec.status = decision.clone();
+            }
+            decision
+        };
 
         Ok(status)
     }
@@ -100,5 +112,32 @@ mod tests {
         let svc = OutputGateService::new(DevReviewPolicy);
         let err = svc.get("nonexistent").unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn concurrent_submit_same_job_exactly_one_succeeds() {
+        use std::sync::Arc;
+
+        let svc = Arc::new(OutputGateService::new(DevReviewPolicy));
+        let n = 20;
+        let mut handles = Vec::with_capacity(n);
+        for i in 0..n {
+            let svc = Arc::clone(&svc);
+            handles.push(tokio::spawn(async move {
+                svc.submit("dup-job", &format!("/output/{i}"), [i as u8; 32]).await
+            }));
+        }
+
+        let mut ok_count = 0usize;
+        let mut dup_count = 0usize;
+        for h in handles {
+            match h.await.unwrap() {
+                Ok(_) => ok_count += 1,
+                Err(OutputGateError::AlreadySubmitted(_)) => dup_count += 1,
+                Err(e) => panic!("unexpected error: {e}"),
+            }
+        }
+        assert_eq!(ok_count, 1, "exactly one submit should succeed");
+        assert_eq!(dup_count, n - 1);
     }
 }
