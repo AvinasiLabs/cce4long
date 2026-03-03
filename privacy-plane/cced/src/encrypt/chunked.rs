@@ -27,6 +27,10 @@ pub fn encrypt_chunked(dek: &Key, plaintext: &[u8]) -> Result<Vec<u8>, EncryptEr
     };
     let chunk_count = chunks.len() as u32;
 
+    if chunk_count > MAX_CHUNKS {
+        return Err(EncryptError::CipherError);
+    }
+
     // Pre-allocate output buffer
     let mut output = Vec::with_capacity(
         HEADER_SIZE + chunks.iter().map(|c| IV_SIZE + c.len() + TAG_SIZE).sum::<usize>(),
@@ -70,7 +74,11 @@ pub fn decrypt_chunked(dek: &Key, data: &[u8]) -> Result<Vec<u8>, EncryptError> 
     if data[4] != VERSION {
         return Err(EncryptError::CipherError);
     }
-    let chunk_count = u32::from_be_bytes(data[5..9].try_into().unwrap()) as usize;
+    let chunk_count = u32::from_be_bytes(data[5..9].try_into().unwrap());
+    if chunk_count > MAX_CHUNKS {
+        return Err(EncryptError::CipherError);
+    }
+    let chunk_count = chunk_count as usize;
 
     let cipher = Aes256Gcm::new(GenericArray::from_slice(dek.as_bytes()));
 
@@ -189,5 +197,18 @@ mod tests {
             decrypt_chunked(&key, &e1).unwrap(),
             decrypt_chunked(&key, &e2).unwrap()
         );
+    }
+
+    #[test]
+    fn encrypt_rejects_excessive_chunk_count() {
+        let key = test_key();
+        // MAX_CHUNKS * CHUNK_SIZE + 1 byte would produce MAX_CHUNKS + 1 chunks.
+        // We can't allocate that much, so test via a crafted header in decrypt.
+        let mut header = Vec::new();
+        header.extend_from_slice(MAGIC);
+        header.push(VERSION);
+        header.extend_from_slice(&(MAX_CHUNKS + 1).to_be_bytes());
+        let err = decrypt_chunked(&key, &header).unwrap_err();
+        assert!(matches!(err, EncryptError::CipherError));
     }
 }

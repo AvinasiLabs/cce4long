@@ -12,3 +12,4 @@ pub const HEADER_SIZE: usize = 4 + 1 + 4; // magic + version + chunk_count
 pub const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4 MB
 pub const IV_SIZE: usize = 12;
 pub const TAG_SIZE: usize = 16;
+pub const MAX_CHUNKS: u32 = 1024; // 1024 * 4MB = 4GB upper bound

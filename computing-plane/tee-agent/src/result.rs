@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
+use tracing::debug;
 
 use key_manager::Key;
 
@@ -11,6 +12,7 @@ use crate::error::AgentError;
 ///
 /// Output format: for each file, produces `{filename}.avin` in the same directory.
 pub fn encrypt_output(rek: &Key, output_dir: &str) -> Result<Vec<EncryptedFile>, AgentError> {
+    debug!(output_dir, "encrypting output files");
     let dir = Path::new(output_dir);
     let entries = std::fs::read_dir(dir)
         .map_err(|e| AgentError::Config(format!("cannot read output dir {output_dir}: {e}")))?;
@@ -29,7 +31,8 @@ pub fn encrypt_output(rek: &Key, output_dir: &str) -> Result<Vec<EncryptedFile>,
         let plaintext = std::fs::read(&path)
             .map_err(|e| AgentError::Config(format!("cannot read {}: {e}", path.display())))?;
 
-        let encrypted = decrypt_fs::encrypt_avin(rek, &plaintext);
+        let encrypted = decrypt_fs::encrypt_avin(rek, &plaintext)
+            .map_err(|e| AgentError::Config(format!("encrypt {}: {e}", path.display())))?;
 
         let filename = path
             .file_name()
@@ -61,6 +64,7 @@ pub fn compute_result_hash(files: &[EncryptedFile]) -> [u8; 32] {
 
     let mut hasher = Sha256::new();
     for f in &sorted {
+        hasher.update(f.filename.as_bytes());
         hasher.update(&f.data);
     }
     hasher.finalize().into()
@@ -138,5 +142,30 @@ mod tests {
 
         let decrypted = decrypt_fs::decrypt_avin(&rek, &files[0].data).unwrap();
         assert_eq!(decrypted, content);
+    }
+
+    #[test]
+    fn result_hash_includes_filename() {
+        let data = vec![0xAA; 32];
+        let files_a = vec![
+            EncryptedFile { filename: "alpha.csv".into(), data: data.clone() },
+        ];
+        let files_b = vec![
+            EncryptedFile { filename: "beta.csv".into(), data: data.clone() },
+        ];
+        assert_ne!(compute_result_hash(&files_a), compute_result_hash(&files_b));
+    }
+
+    #[test]
+    fn result_hash_order_independent() {
+        let f1 = EncryptedFile { filename: "a.csv".into(), data: vec![0x11; 16] };
+        let f2 = EncryptedFile { filename: "b.csv".into(), data: vec![0x22; 16] };
+        let hash_ab = compute_result_hash(&[f1, f2]);
+
+        let f1 = EncryptedFile { filename: "a.csv".into(), data: vec![0x11; 16] };
+        let f2 = EncryptedFile { filename: "b.csv".into(), data: vec![0x22; 16] };
+        let hash_ba = compute_result_hash(&[f2, f1]);
+
+        assert_eq!(hash_ab, hash_ba);
     }
 }

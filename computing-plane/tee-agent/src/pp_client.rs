@@ -3,6 +3,7 @@ use compute_controller::JobCredential;
 use key_manager::ecdhe::WrappedKeyBundle;
 use key_manager::Key;
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use x25519_dalek::StaticSecret;
 
 use crate::error::AgentError;
@@ -78,10 +79,10 @@ impl PpClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp
-                .text()
-                .await
-                .unwrap_or_else(|_| "<unreadable>".to_string());
+            let body = resp.text().await.unwrap_or_else(|e| {
+                warn!("failed to read PP error response body: {e}");
+                "<unreadable>".to_string()
+            });
             return Err(AgentError::PpResponse(format!(
                 "PP returned {status}: {body}"
             )));
@@ -123,10 +124,10 @@ impl PpClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp
-                .text()
-                .await
-                .unwrap_or_else(|_| "<unreadable>".to_string());
+            let body = resp.text().await.unwrap_or_else(|e| {
+                warn!("failed to read PP error response body: {e}");
+                "<unreadable>".to_string()
+            });
             return Err(AgentError::PpResponse(format!(
                 "PP returned {status}: {body}"
             )));

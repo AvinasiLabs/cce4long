@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use key_manager::DatasetId;
 use rand::RngCore;
 use sha2::{Digest, Sha512};
+use tracing::info;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use compute_controller::JobCredential;
@@ -75,12 +76,14 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
     /// Run the complete agent lifecycle:
     /// acquire_keys → mount_data → execute → encrypt_results → submit_result → cleanup
     pub async fn run(&mut self) -> Result<AgentResult, AgentError> {
+        info!(job_id = %self.credential.job_id, "starting agent lifecycle");
         let keys = self.acquire_keys().await?;
         self.mount_data(&keys).await?;
         let execution = self.execute().await?;
         let encrypted_files = self.encrypt_results(&keys.rek)?;
         let submit_status = self.submit_result(&encrypted_files).await?;
         self.cleanup().await;
+        info!(job_id = %self.credential.job_id, "agent lifecycle completed");
         Ok(AgentResult {
             execution,
             encrypted_files,
@@ -90,6 +93,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
 
     /// Acquire DEKs + REK from the privacy plane via RequestKeys.
     pub async fn acquire_keys(&self) -> Result<AcquiredKeys, AgentError> {
+        info!(datasets = self.dataset_ids.len(), "acquiring keys from PP");
         // 1. ECDHE keypair
         let cvm_secret = StaticSecret::random_from_rng(rand::rngs::OsRng);
         let cvm_pk = PublicKey::from(&cvm_secret);
@@ -138,6 +142,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
 
     /// Mount datasets for decryption using acquired DEKs.
     async fn mount_data(&mut self, keys: &AcquiredKeys) -> Result<(), AgentError> {
+        info!(datasets = keys.deks.len(), "mounting datasets");
         for (&dataset_id, dek) in &keys.deks {
             let dir = format!("{}/{dataset_id}", self.data_dir);
             self.decrypt_fs
@@ -150,6 +155,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
 
     /// Execute the algorithm.
     async fn execute(&self) -> Result<executor::ExecutionResult, AgentError> {
+        info!("executing algorithm");
         self.runner
             .run(&self.job_spec, &self.data_dir, &self.output_dir)
             .await
@@ -158,6 +164,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
 
     /// Encrypt output files with REK.
     fn encrypt_results(&self, rek: &Key) -> Result<Vec<EncryptedFile>, AgentError> {
+        info!(output_dir = %self.output_dir, "encrypting results");
         encrypt_output(rek, &self.output_dir)
     }
 
@@ -166,6 +173,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
         &self,
         encrypted_files: &[EncryptedFile],
     ) -> Result<String, AgentError> {
+        info!(files = encrypted_files.len(), "submitting results to PP");
         // 1. Write encrypted files to output_dir
         write_encrypted_files(encrypted_files, &self.output_dir)?;
 
@@ -193,6 +201,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
 
     /// Clean up mounted datasets.
     async fn cleanup(&mut self) {
+        info!("cleaning up mounted datasets");
         self.decrypt_fs.cleanup().await;
     }
 }

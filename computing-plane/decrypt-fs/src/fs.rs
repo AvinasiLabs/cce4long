@@ -77,7 +77,7 @@ mod tests {
 
         let dek = test_key(0x42);
         let plaintext = b"decrypted content here";
-        let encrypted = encrypt_avin(&dek, plaintext);
+        let encrypted = encrypt_avin(&dek, plaintext).unwrap();
         fs::write(tmp.path().join("data.avin"), &encrypted).unwrap();
 
         let mut dfs = DecryptFs::new(DevMountBackend);
@@ -115,12 +115,12 @@ mod tests {
 
         fs::write(
             tmp1.path().join("file1.avin"),
-            encrypt_avin(&dek1, b"data-from-dataset-1"),
+            encrypt_avin(&dek1, b"data-from-dataset-1").unwrap(),
         )
         .unwrap();
         fs::write(
             tmp2.path().join("file2.avin"),
-            encrypt_avin(&dek2, b"data-from-dataset-2"),
+            encrypt_avin(&dek2, b"data-from-dataset-2").unwrap(),
         )
         .unwrap();
 

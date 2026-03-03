@@ -8,6 +8,9 @@ pub enum DecryptFsError {
     #[error("decryption failed")]
     DecryptionFailed,
 
+    #[error("encryption failed")]
+    EncryptionFailed,
+
     #[error("I/O error: {0}")]
     Io(String),
 

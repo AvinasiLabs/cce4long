@@ -92,7 +92,7 @@ mod tests {
 
         let dek = test_key();
         let plaintext = b"hello decrypted world";
-        let encrypted = encrypt_avin(&dek, plaintext);
+        let encrypted = encrypt_avin(&dek, plaintext).unwrap();
         fs::write(dir.join("data.avin"), &encrypted).unwrap();
 
         let backend = DevMountBackend;
@@ -112,8 +112,8 @@ mod tests {
         let dir = tmp.path();
 
         let dek = test_key();
-        fs::write(dir.join("file1.avin"), encrypt_avin(&dek, b"content-1")).unwrap();
-        fs::write(dir.join("file2.avin"), encrypt_avin(&dek, b"content-2")).unwrap();
+        fs::write(dir.join("file1.avin"), encrypt_avin(&dek, b"content-1").unwrap()).unwrap();
+        fs::write(dir.join("file2.avin"), encrypt_avin(&dek, b"content-2").unwrap()).unwrap();
 
         let backend = DevMountBackend;
         backend
@@ -131,7 +131,7 @@ mod tests {
         let dir = tmp.path();
 
         let dek = test_key();
-        fs::write(dir.join("data.avin"), encrypt_avin(&dek, b"encrypted")).unwrap();
+        fs::write(dir.join("data.avin"), encrypt_avin(&dek, b"encrypted").unwrap()).unwrap();
         fs::write(dir.join("readme.txt"), b"not encrypted").unwrap();
 
         let backend = DevMountBackend;
