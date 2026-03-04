@@ -87,6 +87,75 @@ impl TeeVerifier for DevVerifier {
     }
 }
 
+/// DCAP-based verifier using dcap-qvl. Supports TDX (and SGX structurally).
+/// Fetches collateral from Intel PCCS and verifies quote signature + cert chain.
+#[cfg(feature = "dcap")]
+pub struct DcapVerifier {
+    pccs_url: String,
+}
+
+#[cfg(feature = "dcap")]
+impl DcapVerifier {
+    pub fn new(pccs_url: String) -> Self {
+        Self { pccs_url }
+    }
+}
+
+#[cfg(feature = "dcap")]
+#[async_trait]
+impl TeeVerifier for DcapVerifier {
+    async fn verify(
+        &self,
+        quote: &[u8],
+        expected_reportdata: &[u8; 64],
+    ) -> Result<VerificationResult, VerifierError> {
+        use dcap_qvl::quote::Report;
+
+        // 1. Fetch collateral from Intel PCCS
+        let collateral = dcap_qvl::collateral::get_collateral(&self.pccs_url, quote)
+            .await
+            .map_err(|e| VerifierError::InvalidFormat(format!("collateral fetch: {e}")))?;
+
+        // 2. Verify quote signature + cert chain
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let verified = dcap_qvl::verify::verify(quote, &collateral, now)
+            .map_err(|e| VerifierError::InvalidFormat(format!("quote verification: {e}")))?;
+
+        tracing::info!(status = %verified.status, "DCAP quote verified");
+
+        // 3. Extract reportdata, measurement, and TEE type from the verified report
+        let (tee_type, measurement, reportdata) = match &verified.report {
+            Report::TD10(td) => (
+                TeeType::TDX,
+                hex::encode(td.mr_td),
+                td.report_data,
+            ),
+            Report::TD15(td) => (
+                TeeType::TDX,
+                hex::encode(td.base.mr_td),
+                td.base.report_data,
+            ),
+            Report::SgxEnclave(_) => {
+                return Err(VerifierError::InvalidFormat("SGX not yet supported".into()));
+            }
+        };
+
+        // 4. Verify reportdata matches expected
+        if reportdata != *expected_reportdata {
+            return Err(VerifierError::ReportdataMismatch);
+        }
+
+        Ok(VerificationResult {
+            tee_type,
+            measurement,
+            reportdata,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

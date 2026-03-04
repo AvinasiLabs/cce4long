@@ -29,8 +29,13 @@ async fn run() -> Result<(), AgentError> {
     let job_spec: executor::JobSpec = serde_json::from_str(&job_spec_json)
         .map_err(|e| AgentError::Config(format!("invalid job spec JSON: {e}")))?;
 
+    #[cfg(feature = "coco")]
+    let attester = tee_agent::CocoAttester::new()?;
+    #[cfg(not(feature = "coco"))]
+    let attester = tee_agent::DevAttester;
+
     let mut agent = tee_agent::Agent::new(
-        tee_agent::DevAttester,
+        attester,
         tee_agent::PpClient::new(&config.pp_url),
         config.credential,
         config.submit_credential,

@@ -9,6 +9,53 @@ pub trait Attester: Send + Sync {
 /// Dev-mode attester. Produces quotes compatible with `tee_verifier::DevVerifier`.
 pub struct DevAttester;
 
+/// CoCo-based attester using confidential-containers guest-components.
+/// Auto-detects TEE type (TDX, SEV-SNP, CCA, etc.) at construction time.
+#[cfg(feature = "coco")]
+pub struct CocoAttester {
+    inner: attester::BoxedAttester,
+}
+
+#[cfg(feature = "coco")]
+impl CocoAttester {
+    /// Auto-detect TEE type and create the appropriate attester.
+    /// Detection order: TDX → SGX → SNP → CCA → SE → Sample (dev fallback).
+    pub fn new() -> Result<Self, crate::error::AgentError> {
+        let tee = attester::detect_tee_type();
+        tracing::info!(?tee, "detected TEE type");
+        let inner = attester::BoxedAttester::try_from(tee)
+            .map_err(|e| crate::error::AgentError::Config(format!("CoCo attester init: {e}")))?;
+        Ok(Self { inner })
+    }
+}
+
+#[cfg(feature = "coco")]
+#[async_trait]
+impl Attester for CocoAttester {
+    async fn generate_quote(&self, reportdata: &[u8; 64]) -> Result<Vec<u8>, crate::error::AgentError> {
+        use base64::Engine as _;
+
+        let evidence = self.inner
+            .get_evidence(reportdata.to_vec())
+            .await
+            .map_err(|e| crate::error::AgentError::Config(format!("CoCo get_evidence: {e}")))?;
+
+        // CoCo returns TeeEvidence (serde_json::Value) with TEE-specific JSON structure:
+        // - TDX: {"quote": "<base64>", "cc_eventlog": "..."}
+        // - SNP: {"attestation_report": "<base64>", "cert_chain": "..."}
+        let quote_b64 = evidence["quote"]
+            .as_str()
+            .or_else(|| evidence["attestation_report"].as_str())
+            .ok_or_else(|| crate::error::AgentError::Config(
+                "missing 'quote'/'attestation_report' in CoCo evidence".into()
+            ))?;
+
+        base64::engine::general_purpose::STANDARD
+            .decode(quote_b64)
+            .map_err(|e| crate::error::AgentError::Config(format!("evidence base64 decode: {e}")))
+    }
+}
+
 #[async_trait]
 impl Attester for DevAttester {
     async fn generate_quote(&self, reportdata: &[u8; 64]) -> Result<Vec<u8>, crate::error::AgentError> {

@@ -60,4 +60,8 @@ axum = "0.8"
 reqwest = { version = "0.11", features = ["json"] }
 
 # TEE Attestation (CoCo)
-# attester = { git = "https://github.com/confidential-containers/guest-components", features = ["tdx-attester", "snp-attester"] }
+# snp-attester excluded: sev crate requires target_os = "linux" to compile
+attester = { git = "https://github.com/confidential-containers/guest-components", default-features = false, features = ["tdx-attester"] }
+
+# TEE Quote Verification (Intel DCAP)
+dcap-qvl = "0.3"

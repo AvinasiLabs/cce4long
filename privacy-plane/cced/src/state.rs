@@ -45,6 +45,30 @@ impl AppState {
         }
     }
 
+    /// Production constructor: dstack root key + DCAP TDX quote verification.
+    #[cfg(all(feature = "dstack", feature = "dcap"))]
+    pub async fn production(
+        storage: Box<dyn Storage>,
+        dstack_endpoint: Option<&str>,
+        pccs_url: &str,
+    ) -> Result<Self, anyhow::Error> {
+        let root = key_manager::DstackRootKeyProvider::init(dstack_endpoint).await?;
+        let credential_service = CredentialService::from_root_key(root.root_key())?;
+        let key_manager = KeyManager::from_provider(&root);
+        let upload_hmac_key = key_manager.derive_upload_hmac_key()?;
+        Ok(Self {
+            key_manager,
+            storage,
+            credential_service,
+            tee_verifier: Box::new(tee_verifier::DcapVerifier::new(pccs_url.to_string())),
+            measurement_registry: Box::new(DevMeasurementRegistry),
+            request_id_tracker: Mutex::new(HashSet::new()),
+            output_gate: OutputGateService::new(DevReviewPolicy),
+            upload_hmac_key,
+            access_verifier: Box::new(DevAccessVerifier),
+        })
+    }
+
     #[cfg(feature = "dstack")]
     pub async fn dstack(
         storage: Box<dyn Storage>,

@@ -3,10 +3,16 @@ name = "tee-verifier"
 version.workspace = true
 edition.workspace = true
 
+[features]
+dcap = ["dep:dcap-qvl", "dep:hex", "dep:tracing"]
+
 [dependencies]
 async-trait.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+dcap-qvl = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
