@@ -50,7 +50,18 @@ async fn main() {
         }
     };
 
-    let state = Arc::new(cced::state::AppState::dev(storage));
+    let state = match std::env::var("CCED_MODE").as_deref() {
+        #[cfg(feature = "dstack")]
+        Ok("dstack") => {
+            let endpoint = std::env::var("DSTACK_SIMULATOR_ENDPOINT").ok();
+            Arc::new(
+                cced::state::AppState::dstack(storage, endpoint.as_deref())
+                    .await
+                    .expect("dstack initialization failed"),
+            )
+        }
+        _ => Arc::new(cced::state::AppState::dev(storage)),
+    };
 
     let app = cced::api::router(state);
 

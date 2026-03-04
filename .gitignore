@@ -19,3 +19,6 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Dev tools (native binaries)
+.dev-tools/

@@ -11,6 +11,9 @@ path = "src/lib.rs"
 name = "cced"
 path = "src/main.rs"
 
+[features]
+dstack = ["key-manager/dstack"]
+
 [dependencies]
 key-manager.workspace = true
 compute-controller.workspace = true

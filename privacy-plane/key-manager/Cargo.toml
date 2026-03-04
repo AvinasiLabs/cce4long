@@ -12,6 +12,11 @@ thiserror.workspace = true
 x25519-dalek = { workspace = true, features = ["static_secrets"] }
 aes-gcm.workspace = true
 rand.workspace = true
+dstack-sdk = { git = "https://github.com/Dstack-TEE/dstack.git", rev = "d3275d1", version = "0.1.2", optional = true }
+tokio = { workspace = true, features = ["rt"], optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[features]
+dstack = ["dep:dstack-sdk", "dep:tokio"]

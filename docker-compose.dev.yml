@@ -1,0 +1,7 @@
+# For Linux/CI only. On macOS ARM, use the native binary instead:
+#   .dev-tools/tappd-simulator -l 0.0.0.0:8090
+services:
+  dstack-simulator:
+    image: phalanetwork/tappd-simulator:latest
+    ports:
+      - "8090:8090"
