@@ -3,6 +3,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use std::sync::Arc;
+use tee_verifier::TeeType;
 
 use compute_controller::JobCredential;
 
@@ -16,7 +17,8 @@ pub struct SubmitResultBody {
     pub job_id: String,
     pub result_path: String,
     pub result_hash: String,
-    pub quote: String,
+    pub tee_type: TeeType,
+    pub evidence: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -39,19 +41,16 @@ pub async fn submit_result(
     }
     let result_hash: [u8; 32] = result_hash_bytes.try_into().unwrap();
 
-    let quote_bytes = hex::decode(&body.quote)
-        .map_err(|e| ApiError::InvalidHex(format!("quote: {}", e)))?;
-
     // 3. Compute expected reportdata = SHA512(job_id || result_hash)
     let mut hasher = Sha512::new();
     hasher.update(body.job_id.as_bytes());
     hasher.update(result_hash);
     let expected_reportdata: [u8; 64] = hasher.finalize().into();
 
-    // 4. Verify TEE quote
+    // 4. Verify TEE evidence
     let verification = state
         .tee_verifier
-        .verify(&quote_bytes, &expected_reportdata)
+        .verify(&body.tee_type, &body.evidence, &expected_reportdata)
         .await?;
 
     // 5. Check measurement trust

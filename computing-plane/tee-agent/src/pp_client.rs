@@ -3,6 +3,7 @@ use compute_controller::JobCredential;
 use key_manager::ecdhe::WrappedKeyBundle;
 use key_manager::Key;
 use serde::{Deserialize, Serialize};
+use tee_verifier::TeeType;
 use tracing::warn;
 use x25519_dalek::StaticSecret;
 
@@ -12,7 +13,8 @@ use crate::error::AgentError;
 struct RequestKeysBody {
     credential: JobCredential,
     request_id: String,
-    quote: String,
+    tee_type: TeeType,
+    evidence: serde_json::Value,
     eph_pk: String,
     dataset_ids: Vec<DatasetId>,
 }
@@ -30,7 +32,8 @@ struct SubmitResultBody {
     job_id: String,
     result_path: String,
     result_hash: String,
-    quote: String,
+    tee_type: TeeType,
+    evidence: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -56,14 +59,16 @@ impl PpClient {
         &self,
         credential: &JobCredential,
         request_id: &[u8; 16],
-        quote: &[u8],
+        tee_type: &TeeType,
+        evidence: &serde_json::Value,
         eph_pk: &[u8; 32],
         dataset_ids: &[DatasetId],
     ) -> Result<WrappedKeyBundle, AgentError> {
         let body = RequestKeysBody {
             credential: credential.clone(),
             request_id: hex::encode(request_id),
-            quote: hex::encode(quote),
+            tee_type: *tee_type,
+            evidence: evidence.clone(),
             eph_pk: hex::encode(eph_pk),
             dataset_ids: dataset_ids.to_vec(),
         };
@@ -103,14 +108,16 @@ impl PpClient {
         job_id: &str,
         result_path: &str,
         result_hash: &[u8; 32],
-        quote: &[u8],
+        tee_type: &TeeType,
+        evidence: &serde_json::Value,
     ) -> Result<String, AgentError> {
         let body = SubmitResultBody {
             credential: credential.clone(),
             job_id: job_id.to_string(),
             result_path: result_path.to_string(),
             result_hash: hex::encode(result_hash),
-            quote: hex::encode(quote),
+            tee_type: *tee_type,
+            evidence: evidence.clone(),
         };
 
         let url = format!("{}/v1/results/submit", self.base_url);
@@ -178,7 +185,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn request_body_serializes_hex() {
+    fn request_body_serializes_correctly() {
         let ds1 = DatasetId::from([0x01; 20]);
         let ds2 = DatasetId::from([0x02; 20]);
         let body = RequestKeysBody {
@@ -194,13 +201,16 @@ mod tests {
             }))
             .unwrap(),
             request_id: hex::encode([0x01; 16]),
-            quote: hex::encode([0x02; 128]),
+            tee_type: TeeType::Sample,
+            evidence: serde_json::json!({"svn": "1", "report_data": "test"}),
             eph_pk: hex::encode([0x03; 32]),
             dataset_ids: vec![ds1, ds2],
         };
 
         let json = serde_json::to_value(&body).unwrap();
         assert_eq!(json["request_id"], hex::encode([0x01; 16]));
+        assert_eq!(json["tee_type"], "sample");
+        assert!(json["evidence"]["report_data"].is_string());
         assert_eq!(json["eph_pk"], hex::encode([0x03; 32]));
         assert_eq!(json["dataset_ids"].as_array().unwrap().len(), 2);
     }
@@ -223,7 +233,7 @@ mod tests {
     fn parse_key_bundle_invalid_nonce_length() {
         let resp = RequestKeysResponse {
             encrypted_keys: hex::encode([0xAA; 64]),
-            nonce: hex::encode([0xBB; 8]), // wrong length
+            nonce: hex::encode([0xBB; 8]),
             pp_pk: hex::encode([0xCC; 32]),
         };
 
@@ -236,7 +246,7 @@ mod tests {
         let resp = RequestKeysResponse {
             encrypted_keys: hex::encode([0xAA; 64]),
             nonce: hex::encode([0xBB; 12]),
-            pp_pk: hex::encode([0xCC; 16]), // wrong length
+            pp_pk: hex::encode([0xCC; 16]),
         };
 
         let err = parse_key_bundle(&resp).err().expect("should fail");

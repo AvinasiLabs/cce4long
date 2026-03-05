@@ -13,6 +13,8 @@ serde.workspace = true
 dcap-qvl = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
+serde_json.workspace = true
+base64 = "0.22"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

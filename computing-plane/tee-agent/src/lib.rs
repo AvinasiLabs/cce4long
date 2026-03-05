@@ -5,9 +5,7 @@ pub mod lifecycle;
 pub mod pp_client;
 pub mod result;
 
-pub use attester::{Attester, DevAttester};
-#[cfg(feature = "coco")]
-pub use attester::CocoAttester;
+pub use attester::{Attester, CocoAttester};
 pub use config::AgentConfig;
 pub use error::AgentError;
 pub use lifecycle::Agent;

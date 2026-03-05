@@ -11,12 +11,9 @@ path = "src/lib.rs"
 name = "tee-agent"
 path = "src/main.rs"
 
-[features]
-coco = ["dep:attester", "dep:base64"]
-
 [dependencies]
-attester = { workspace = true, optional = true }
-base64 = { version = "0.22", optional = true }
+attester.workspace = true
+base64 = "0.22"
 decrypt-fs.workspace = true
 executor.workspace = true
 key-manager.workspace = true
@@ -34,6 +31,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
+kbs-types = "0.14"
 
 [dev-dependencies]
 cced.workspace = true

@@ -112,7 +112,10 @@ impl From<tee_verifier::VerifierError> for ApiError {
     fn from(e: tee_verifier::VerifierError) -> Self {
         match e {
             tee_verifier::VerifierError::ReportdataMismatch => ApiError::ReportdataMismatch,
-            other => ApiError::VerifierError(other.to_string()),
+            tee_verifier::VerifierError::UnsupportedTeeType(_)
+            | tee_verifier::VerifierError::InvalidFormat(_) => {
+                ApiError::VerifierError(e.to_string())
+            }
         }
     }
 }

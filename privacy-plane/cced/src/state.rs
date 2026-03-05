@@ -6,7 +6,7 @@ use compute_controller::{
 };
 use key_manager::{DevRootKeyProvider, KeyManager, RootKeyProvider};
 use output_gate::{DevReviewPolicy, OutputGateService};
-use tee_verifier::{DevVerifier, TeeVerifier};
+use tee_verifier::{TeeVerifier, SampleVerifier, TeeType};
 
 use crate::access::{AccessVerifier, DevAccessVerifier};
 use crate::storage::Storage;
@@ -15,7 +15,7 @@ pub struct AppState {
     pub key_manager: KeyManager,
     pub storage: Box<dyn Storage>,
     pub credential_service: CredentialService,
-    pub tee_verifier: Box<dyn TeeVerifier>,
+    pub tee_verifier: TeeVerifier,
     pub measurement_registry: Box<dyn MeasurementRegistry>,
     pub request_id_tracker: Mutex<HashSet<[u8; 16]>>,
     pub output_gate: OutputGateService<DevReviewPolicy>,
@@ -36,7 +36,7 @@ impl AppState {
             key_manager,
             storage,
             credential_service,
-            tee_verifier: Box::new(DevVerifier),
+            tee_verifier: TeeVerifier::new().register(TeeType::Sample, SampleVerifier),
             measurement_registry: Box::new(DevMeasurementRegistry),
             request_id_tracker: Mutex::new(HashSet::new()),
             output_gate: OutputGateService::new(DevReviewPolicy),
@@ -60,7 +60,9 @@ impl AppState {
             key_manager,
             storage,
             credential_service,
-            tee_verifier: Box::new(tee_verifier::DcapVerifier::new(pccs_url.to_string())),
+            tee_verifier: TeeVerifier::new()
+                .register(TeeType::Tdx, tee_verifier::DcapVerifier::new(pccs_url.to_string()))
+                .register(TeeType::Sample, SampleVerifier),
             measurement_registry: Box::new(DevMeasurementRegistry),
             request_id_tracker: Mutex::new(HashSet::new()),
             output_gate: OutputGateService::new(DevReviewPolicy),
@@ -82,7 +84,7 @@ impl AppState {
             key_manager,
             storage,
             credential_service,
-            tee_verifier: Box::new(DevVerifier),
+            tee_verifier: TeeVerifier::new().register(TeeType::Sample, SampleVerifier),
             measurement_registry: Box::new(DevMeasurementRegistry),
             request_id_tracker: Mutex::new(HashSet::new()),
             output_gate: OutputGateService::new(DevReviewPolicy),

@@ -5,7 +5,7 @@ use cced::state::AppState;
 use cced::storage::LocalStorage;
 
 use tee_agent::lifecycle::Agent;
-use tee_agent::{DevAttester, PpClient};
+use tee_agent::{CocoAttester, PpClient};
 
 fn dev_state(dir: &str) -> Arc<AppState> {
     let storage = Box::new(LocalStorage::new(dir));
@@ -33,7 +33,7 @@ fn key_agent(
     credential: compute_controller::JobCredential,
     dataset_ids: Vec<DatasetId>,
 ) -> Agent<
-    tee_agent::DevAttester,
+    CocoAttester,
     decrypt_fs::DevMountBackend,
     executor::DevRunner,
 > {
@@ -50,7 +50,7 @@ fn key_agent(
     })).unwrap();
 
     Agent::new(
-        DevAttester,
+        CocoAttester::new().unwrap(),
         PpClient::new(pp_url),
         credential,
         submit_credential,

@@ -4,6 +4,7 @@ use key_manager::DatasetId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use std::sync::Arc;
+use tee_verifier::TeeType;
 
 use compute_controller::JobCredential;
 use key_manager::ecdhe;
@@ -16,7 +17,8 @@ use super::error::ApiError;
 pub struct RequestKeysBody {
     pub credential: JobCredential,
     pub request_id: String,
-    pub quote: String,
+    pub tee_type: TeeType,
+    pub evidence: serde_json::Value,
     pub eph_pk: String,
     pub dataset_ids: Vec<DatasetId>,
 }
@@ -60,9 +62,6 @@ pub async fn request_keys(
     }
     let eph_pk: [u8; 32] = eph_pk_bytes.try_into().unwrap();
 
-    let quote_bytes = hex::decode(&body.quote)
-        .map_err(|e| ApiError::InvalidHex(format!("quote: {}", e)))?;
-
     // 4. Request ID replay detection
     {
         let mut tracker = state.request_id_tracker.lock().unwrap();
@@ -78,10 +77,10 @@ pub async fn request_keys(
     let digest = hasher.finalize();
     let expected_reportdata: [u8; 64] = digest.into();
 
-    // 6. Verify TEE quote
+    // 6. Verify TEE evidence
     let verification = state
         .tee_verifier
-        .verify(&quote_bytes, &expected_reportdata)
+        .verify(&body.tee_type, &body.evidence, &expected_reportdata)
         .await?;
 
     // 7. Check measurement trust
@@ -150,18 +149,18 @@ mod tests {
             vec![DatasetId::from([0x01; 20]), DatasetId::from([0x02; 20])],
         );
 
-        // Compute reportdata = SHA512(eph_pk || request_id)
         let mut hasher = Sha512::new();
         hasher.update(cvm_pk.as_bytes());
         hasher.update(&request_id);
         let reportdata: [u8; 64] = hasher.finalize().into();
 
-        let quote = tee_verifier::build_dev_quote(&reportdata);
+        let evidence = tee_verifier::build_sample_evidence(&reportdata);
 
         serde_json::json!({
             "credential": credential,
             "request_id": hex::encode(&request_id),
-            "quote": hex::encode(&quote),
+            "tee_type": "sample",
+            "evidence": evidence,
             "eph_pk": hex::encode(cvm_pk.as_bytes()),
             "dataset_ids": ["0x0101010101010101010101010101010101010101", "0x0202020202020202020202020202020202020202"]
         })
@@ -193,7 +192,6 @@ mod tests {
     async fn invalid_credential_signature() {
         let state = dev_state();
         let mut body = valid_request(&state);
-        // Tamper with credential job_id (signature won't match)
         body["credential"]["job_id"] = serde_json::json!("tampered-job");
         let resp = post_request_keys(state, body).await;
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -205,7 +203,6 @@ mod tests {
         let mut body = valid_request(&state);
         body["credential"]["expires_at"] = serde_json::json!(0);
         let resp = post_request_keys(state, body).await;
-        // Signature mismatch because expires_at changed
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -213,10 +210,8 @@ mod tests {
     async fn nonce_replay() {
         let state = dev_state();
         let body = valid_request(&state);
-        // First request succeeds
         let resp = post_request_keys(state.clone(), body.clone()).await;
         assert_eq!(resp.status(), StatusCode::OK);
-        // Second request with same credential nonce fails
         let resp = post_request_keys(state, body).await;
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
@@ -225,7 +220,6 @@ mod tests {
     async fn unauthorized_dataset() {
         let state = dev_state();
         let mut body = valid_request(&state);
-        // Request a dataset not in credential
         body["dataset_ids"] = serde_json::json!(["0x0101010101010101010101010101010101010101", "0x9999999999999999999999999999999999999999"]);
         let resp = post_request_keys(state, body).await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
@@ -235,12 +229,10 @@ mod tests {
     async fn request_id_replay() {
         let state = dev_state();
 
-        // First request
         let body1 = valid_request(&state);
         let resp = post_request_keys(state.clone(), body1.clone()).await;
         assert_eq!(resp.status(), StatusCode::OK);
 
-        // Second request with same request_id but new credential
         let mut body2 = valid_request(&state);
         body2["request_id"] = body1["request_id"].clone();
         let resp = post_request_keys(state, body2).await;
@@ -251,10 +243,9 @@ mod tests {
     async fn reportdata_mismatch() {
         let state = dev_state();
         let mut body = valid_request(&state);
-        // Replace quote with one containing wrong reportdata
         let wrong_rd = [0xFF; 64];
-        let wrong_quote = tee_verifier::build_dev_quote(&wrong_rd);
-        body["quote"] = serde_json::json!(hex::encode(&wrong_quote));
+        let wrong_evidence = tee_verifier::build_sample_evidence(&wrong_rd);
+        body["evidence"] = wrong_evidence;
         let resp = post_request_keys(state, body).await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
@@ -272,7 +263,7 @@ mod tests {
     async fn wrong_length_request_id() {
         let state = dev_state();
         let mut body = valid_request(&state);
-        body["request_id"] = serde_json::json!("aabb"); // too short
+        body["request_id"] = serde_json::json!("aabb");
         let resp = post_request_keys(state, body).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }

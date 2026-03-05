@@ -108,8 +108,9 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
         hasher.update(request_id);
         let reportdata: [u8; 64] = hasher.finalize().into();
 
-        // 4. TEE quote
-        let quote = self.attester.generate_quote(&reportdata).await?;
+        // 4. TEE evidence
+        let tee_type = self.attester.tee_type();
+        let evidence = self.attester.get_evidence(&reportdata).await?;
 
         // 5. Request keys from PP
         let bundle = self
@@ -117,7 +118,8 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
             .request_keys(
                 &self.credential,
                 &request_id,
-                &quote,
+                &tee_type,
+                &evidence,
                 cvm_pk.as_bytes(),
                 &self.dataset_ids,
             )
@@ -180,12 +182,13 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
         // 2. Compute result hash
         let result_hash = compute_result_hash(encrypted_files);
 
-        // 3. Generate quote: REPORTDATA = SHA512(job_id || result_hash)
+        // 3. Generate evidence: REPORTDATA = SHA512(job_id || result_hash)
         let mut hasher = Sha512::new();
         hasher.update(self.credential.job_id.as_bytes());
         hasher.update(result_hash);
         let reportdata: [u8; 64] = hasher.finalize().into();
-        let quote = self.attester.generate_quote(&reportdata).await?;
+        let tee_type = self.attester.tee_type();
+        let evidence = self.attester.get_evidence(&reportdata).await?;
 
         // 4. Submit to PP
         self.pp_client
@@ -194,7 +197,8 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
                 &self.credential.job_id,
                 &self.output_dir,
                 &result_hash,
-                &quote,
+                &tee_type,
+                &evidence,
             )
             .await
     }

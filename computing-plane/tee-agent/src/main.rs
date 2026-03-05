@@ -23,16 +23,12 @@ async fn run() -> Result<(), AgentError> {
     let config = tee_agent::AgentConfig::from_env()?;
     tracing::info!(pp_url = %config.pp_url, "config loaded");
 
-    // Parse job spec from TEE_AGENT_JOB_SPEC env var (JSON)
     let job_spec_json = std::env::var("TEE_AGENT_JOB_SPEC")
         .map_err(|_| AgentError::Config("missing TEE_AGENT_JOB_SPEC".into()))?;
     let job_spec: executor::JobSpec = serde_json::from_str(&job_spec_json)
         .map_err(|e| AgentError::Config(format!("invalid job spec JSON: {e}")))?;
 
-    #[cfg(feature = "coco")]
     let attester = tee_agent::CocoAttester::new()?;
-    #[cfg(not(feature = "coco"))]
-    let attester = tee_agent::DevAttester;
 
     let mut agent = tee_agent::Agent::new(
         attester,

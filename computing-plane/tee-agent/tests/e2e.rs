@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use key_manager::DatasetId;
 use cced::state::AppState;
 use cced::storage::LocalStorage;
+use key_manager::DatasetId;
 
 use tee_agent::lifecycle::Agent;
-use tee_agent::{DevAttester, PpClient};
+use tee_agent::{CocoAttester, PpClient};
 
 fn dev_state(dir: &str) -> Arc<AppState> {
     let storage = Box::new(LocalStorage::new(dir));
@@ -36,7 +36,7 @@ async fn full_lifecycle_success() {
     let ds = test_id(0x01);
     let wallet = test_id(0xAA);
 
-    // 1. Upload test data to PP → creates .avin encrypted files
+    // 1. Upload test data to PP
     let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
     let test_data = b"col1,col2\nfoo,42\nbar,99";
     let app = cced::api::router(state.clone());
@@ -49,25 +49,25 @@ async fn full_lifecycle_success() {
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
     assert_eq!(resp.status(), axum::http::StatusCode::OK);
 
-    // 2. Set up data_dir pointing to PP's storage (where .avin files live)
+    // 2. Set up data_dir pointing to PP's storage
     let data_dir = tempfile::tempdir().unwrap();
     let dataset_dir = data_dir.path().join(ds.to_string());
     std::fs::create_dir_all(&dataset_dir).unwrap();
 
-    // Copy the .avin file from PP storage to agent's data dir
     let avin_path = tmp_storage.path().join(format!("{}/data.csv.avin", ds));
     std::fs::copy(&avin_path, dataset_dir.join("data.csv.avin")).unwrap();
 
     // 3. Set up output_dir
     let output_dir = tempfile::tempdir().unwrap();
 
-    // 4. Issue credentials (separate nonces for key request and submit)
+    // 4. Issue credentials
     let credential = state.credential_service.issue("job-e2e", "alice", vec![ds]);
     let submit_credential = state.credential_service.issue("job-e2e", "alice", vec![ds]);
 
     // 5. Build and run agent
+    let attester = CocoAttester::new().unwrap();
     let mut agent = Agent::new(
-        DevAttester,
+        attester,
         PpClient::new(&pp_url),
         credential,
         submit_credential,
@@ -97,8 +97,7 @@ async fn full_lifecycle_success() {
 
     // 8. Verify REK can decrypt the output
     let rek = state.key_manager.derive_rek("job-e2e").unwrap();
-    let decrypted =
-        decrypt_fs::decrypt_avin(&rek, &result.encrypted_files[0].data).unwrap();
+    let decrypted = decrypt_fs::decrypt_avin(&rek, &result.encrypted_files[0].data).unwrap();
     let output_text = String::from_utf8(decrypted).unwrap();
     assert!(output_text.contains("computation complete"));
 
@@ -122,8 +121,9 @@ async fn lifecycle_key_failure_aborts() {
     let output_dir = tempfile::tempdir().unwrap();
     let data_dir = tempfile::tempdir().unwrap();
 
+    let attester = CocoAttester::new().unwrap();
     let mut agent = Agent::new(
-        DevAttester,
+        attester,
         PpClient::new(&pp_url),
         credential,
         submit_credential,
@@ -153,14 +153,19 @@ async fn lifecycle_execution_failure_aborts() {
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);
-    let credential = state.credential_service.issue("job-fail", "alice", vec![ds]);
-    let submit_credential = state.credential_service.issue("job-fail", "alice", vec![ds]);
+    let credential = state
+        .credential_service
+        .issue("job-fail", "alice", vec![ds]);
+    let submit_credential = state
+        .credential_service
+        .issue("job-fail", "alice", vec![ds]);
     let data_dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(data_dir.path().join(ds.to_string())).unwrap();
     let output_dir = tempfile::tempdir().unwrap();
 
+    let attester = CocoAttester::new().unwrap();
     let mut agent = Agent::new(
-        DevAttester,
+        attester,
         PpClient::new(&pp_url),
         credential,
         submit_credential,
@@ -193,8 +198,9 @@ async fn lifecycle_result_encryption_valid() {
     std::fs::create_dir_all(data_dir.path().join(ds.to_string())).unwrap();
     let output_dir = tempfile::tempdir().unwrap();
 
+    let attester = CocoAttester::new().unwrap();
     let mut agent = Agent::new(
-        DevAttester,
+        attester,
         PpClient::new(&pp_url),
         credential,
         submit_credential,
@@ -266,12 +272,17 @@ async fn full_lifecycle_with_submit() {
     let output_dir = tempfile::tempdir().unwrap();
 
     // 4. Issue credentials
-    let credential = state.credential_service.issue("job-submit", "alice", vec![ds]);
-    let submit_credential = state.credential_service.issue("job-submit", "alice", vec![ds]);
+    let credential = state
+        .credential_service
+        .issue("job-submit", "alice", vec![ds]);
+    let submit_credential = state
+        .credential_service
+        .issue("job-submit", "alice", vec![ds]);
 
     // 5. Run agent lifecycle (includes submit)
+    let attester = CocoAttester::new().unwrap();
     let mut agent = Agent::new(
-        DevAttester,
+        attester,
         PpClient::new(&pp_url),
         credential,
         submit_credential,
@@ -306,7 +317,9 @@ async fn full_lifecycle_with_submit() {
         .method("POST")
         .uri("/v1/results/job-submit")
         .header("content-type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_vec(&get_body).unwrap()))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&get_body).unwrap(),
+        ))
         .unwrap();
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
     assert_eq!(resp.status(), axum::http::StatusCode::OK);
@@ -332,7 +345,7 @@ async fn full_lifecycle_with_submit() {
     };
 
     let (deks, rek) = key_manager::ecdhe::unwrap_keys(&bundle, &user_secret).unwrap();
-    assert_eq!(deks.len(), 0); // No DEKs, only REK
+    assert_eq!(deks.len(), 0);
 
     // 9. Verify REK matches what PP would derive
     let expected_rek = state.key_manager.derive_rek("job-submit").unwrap();

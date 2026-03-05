@@ -20,7 +20,7 @@ fn test_dataset_id(val: u8) -> DatasetId {
     DatasetId::from([val; 20])
 }
 
-/// Full CVM-side flow: issue credential → generate keypair → build quote → request keys → unwrap → verify DEKs + REK
+/// Full CVM-side flow: issue credential → generate keypair → build evidence → request keys → unwrap → verify DEKs + REK
 #[tokio::test]
 async fn end_to_end_request_keys() {
     let tmp = tempfile::tempdir().unwrap();
@@ -48,14 +48,15 @@ async fn end_to_end_request_keys() {
     hasher.update(&request_id);
     let reportdata: [u8; 64] = hasher.finalize().into();
 
-    // 5. Build dev quote
-    let quote = tee_verifier::build_dev_quote(&reportdata);
+    // 5. Build sample evidence
+    let evidence = tee_verifier::build_sample_evidence(&reportdata);
 
     // 6. POST /v1/keys/request
     let body = serde_json::json!({
         "credential": credential,
         "request_id": hex::encode(&request_id),
-        "quote": hex::encode(&quote),
+        "tee_type": "sample",
+        "evidence": evidence,
         "eph_pk": hex::encode(cvm_pk.as_bytes()),
         "dataset_ids": [ds1, ds2]
     });
@@ -111,12 +112,7 @@ async fn upload_with_token() {
     let ds = test_dataset_id(0x42);
 
     // Issue a valid upload token
-    let token = cced::upload_token::issue_token(
-        wallet,
-        ds,
-        &state.upload_hmac_key,
-        3600,
-    );
+    let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
 
     let app = cced::api::router(state);
     let req = Request::builder()
@@ -157,12 +153,7 @@ async fn upload_wrong_dataset_token_rejected() {
     let wrong_ds = test_dataset_id(0x99);
 
     // Token is for wrong_ds, not ds
-    let token = cced::upload_token::issue_token(
-        wallet,
-        wrong_ds,
-        &state.upload_hmac_key,
-        3600,
-    );
+    let token = cced::upload_token::issue_token(wallet, wrong_ds, &state.upload_hmac_key, 3600);
 
     let app = cced::api::router(state);
     let req = Request::builder()
@@ -184,12 +175,7 @@ async fn upload_and_finalize() {
     let wallet = test_dataset_id(0xAA);
     let ds = test_dataset_id(0x42);
 
-    let token = cced::upload_token::issue_token(
-        wallet,
-        ds,
-        &state.upload_hmac_key,
-        3600,
-    );
+    let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
 
     // Upload a file
     let app = cced::api::router(state.clone());
@@ -244,11 +230,26 @@ async fn upload_batch_deep_dirs_and_finalize() {
     let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
 
     let files = vec![
-        ("raw/2024/01/sensors/temperature.csv", "ts,value\n1,23.5\n2,24.1"),
-        ("raw/2024/01/sensors/humidity.csv", "ts,value\n1,45.2\n2,44.8"),
-        ("raw/2024/01/sensors/pressure.csv", "ts,value\n1,1013\n2,1012"),
-        ("raw/2024/02/sensors/temperature.csv", "ts,value\n3,22.0\n4,21.5"),
-        ("raw/2024/02/sensors/humidity.csv", "ts,value\n3,50.1\n4,49.9"),
+        (
+            "raw/2024/01/sensors/temperature.csv",
+            "ts,value\n1,23.5\n2,24.1",
+        ),
+        (
+            "raw/2024/01/sensors/humidity.csv",
+            "ts,value\n1,45.2\n2,44.8",
+        ),
+        (
+            "raw/2024/01/sensors/pressure.csv",
+            "ts,value\n1,1013\n2,1012",
+        ),
+        (
+            "raw/2024/02/sensors/temperature.csv",
+            "ts,value\n3,22.0\n4,21.5",
+        ),
+        (
+            "raw/2024/02/sensors/humidity.csv",
+            "ts,value\n3,50.1\n4,49.9",
+        ),
         ("processed/2024/q1/summary.json", r#"{"avg_temp":23.0}"#),
         ("processed/2024/q1/report.txt", "Q1 2024 sensor report"),
         ("models/v1/weights.bin", "fake-binary-weights-data-here"),
@@ -298,7 +299,9 @@ async fn upload_batch_deep_dirs_and_finalize() {
     for (path, _) in &files {
         assert!(
             receipt_paths.contains(&path.replace(".csv", ".csv.avin").as_str())
-                || receipt_paths.iter().any(|rp| rp.contains(&path.split('/').last().unwrap().to_string())),
+                || receipt_paths
+                    .iter()
+                    .any(|rp| rp.contains(&path.split('/').last().unwrap().to_string())),
             "path {} not found in receipt: {:?}",
             path,
             receipt_paths
@@ -314,14 +317,8 @@ async fn upload_batch_deep_dirs_and_finalize() {
     assert!(total_size > 0);
 }
 
-// --- Output Gate integration tests ---
-
 /// Helper: build a valid submit_result request body
-fn submit_result_body(
-    state: &AppState,
-    job_id: &str,
-    result_hash: &[u8; 32],
-) -> serde_json::Value {
+fn submit_result_body(state: &AppState, job_id: &str, result_hash: &[u8; 32]) -> serde_json::Value {
     let credential = state
         .credential_service
         .issue(job_id, "alice", vec![test_dataset_id(0x01)]);
@@ -331,14 +328,15 @@ fn submit_result_body(
     hasher.update(job_id.as_bytes());
     hasher.update(result_hash);
     let reportdata: [u8; 64] = hasher.finalize().into();
-    let quote = tee_verifier::build_dev_quote(&reportdata);
+    let evidence = tee_verifier::build_sample_evidence(&reportdata);
 
     serde_json::json!({
         "credential": credential,
         "job_id": job_id,
         "result_path": "/output/results",
         "result_hash": hex::encode(result_hash),
-        "quote": hex::encode(&quote),
+        "tee_type": "sample",
+        "evidence": evidence,
     })
 }
 
@@ -381,20 +379,22 @@ async fn submit_result_invalid_quote_rejected() {
     let state = dev_state(tmp.path().to_str().unwrap());
 
     let result_hash = [0xAA; 32];
-    let credential = state
-        .credential_service
-        .issue("job-bad-quote", "alice", vec![test_dataset_id(0x01)]);
+    let credential =
+        state
+            .credential_service
+            .issue("job-bad-quote", "alice", vec![test_dataset_id(0x01)]);
 
-    // Build a quote with WRONG reportdata
+    // Build evidence with WRONG reportdata
     let wrong_reportdata = [0xFF; 64];
-    let quote = tee_verifier::build_dev_quote(&wrong_reportdata);
+    let evidence = tee_verifier::build_sample_evidence(&wrong_reportdata);
 
     let body = serde_json::json!({
         "credential": credential,
         "job_id": "job-bad-quote",
         "result_path": "/output/results",
         "result_hash": hex::encode(result_hash),
-        "quote": hex::encode(&quote),
+        "tee_type": "sample",
+        "evidence": evidence,
     });
 
     let resp = post_json(state, "/v1/results/submit", &body).await;
