@@ -1,0 +1,18 @@
+name: Create job - bad signature
+description: |-
+  Attempt to create a job with an invalid signature.
+  Expected: 401 Unauthorized with signature recovery error.
+method: POST
+url: http://localhost:3000/v1/jobs/create
+headers:
+  - name: Content-Type
+    value: application/json
+body:
+  content: |-
+    {
+      "wallet_address": "$test_wallet",
+      "dataset_ids": ["$dataset_id"],
+      "job_spec": {},
+      "signature": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefde1b",
+      "message": "$create_job_message"
+    }

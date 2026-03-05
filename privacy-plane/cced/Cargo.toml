@@ -37,6 +37,7 @@ hmac.workspace = true
 base64 = "0.22"
 k256.workspace = true
 sha3.workspace = true
+uuid.workspace = true
 rust-s3 = "0.37.1"
 dotenvy = "0.15.7"
 

@@ -1,0 +1,19 @@
+name: Create job
+description: |-
+  Create a compute job for a finalized dataset.
+  Requires upload + finalize first (use upload-token, upload, finalize flows).
+  Expected: 200 OK with { job_id, credential, submit_credential, dataset_ids, job_spec }.
+method: POST
+url: http://localhost:3000/v1/jobs/create
+headers:
+  - name: Content-Type
+    value: application/json
+body:
+  content: |-
+    {
+      "wallet_address": "$test_wallet",
+      "dataset_ids": ["$dataset_id"],
+      "job_spec": {"algorithm": "mean", "columns": ["col1"]},
+      "signature": "$create_job_signature",
+      "message": "$create_job_message"
+    }

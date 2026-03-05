@@ -34,7 +34,7 @@ pub struct UploadTokenResponse {
 }
 
 /// Recover the signer address from an EIP-191 personal_sign signature.
-fn recover_address(message: &str, sig_hex: &str) -> Result<[u8; 20], String> {
+pub(crate) fn recover_address(message: &str, sig_hex: &str) -> Result<[u8; 20], String> {
     let sig_bytes = hex::decode(sig_hex.strip_prefix("0x").unwrap_or(sig_hex))
         .map_err(|e| format!("invalid signature hex: {e}"))?;
 
@@ -83,7 +83,7 @@ fn recover_address(message: &str, sig_hex: &str) -> Result<[u8; 20], String> {
 }
 
 /// Keccak-256 hash (Ethereum uses keccak, not SHA3-256).
-fn keccak256(data: &[u8]) -> [u8; 32] {
+pub(crate) fn keccak256(data: &[u8]) -> [u8; 32] {
     use sha3::Digest as Sha3Digest;
     let mut hasher = sha3::Keccak256::new();
     hasher.update(data);

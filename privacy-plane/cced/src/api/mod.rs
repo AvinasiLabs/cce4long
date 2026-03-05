@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod create_job;
 pub mod error;
 pub mod finalize;
 pub mod get_result;
@@ -26,5 +27,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/keys/request", post(request_keys::request_keys))
         .route("/v1/results/submit", post(submit_result::submit_result))
         .route("/v1/results/{job_id}", post(get_result::get_result))
+        .route("/v1/jobs/create", post(create_job::create_job))
         .with_state(state)
 }
