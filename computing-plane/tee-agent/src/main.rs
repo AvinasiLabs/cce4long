@@ -38,7 +38,7 @@ async fn run() -> Result<(), AgentError> {
         config.dataset_ids,
         config.data_dir,
         config.output_dir,
-        decrypt_fs::DevMountBackend,
+        decrypt_fs::JuiceFsMountBackend::new(),
         executor::DevRunner,
         job_spec,
     );

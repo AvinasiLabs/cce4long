@@ -1,7 +1,43 @@
-# For Linux/CI only. On macOS ARM, use the native binary instead:
-#   .dev-tools/tappd-simulator -l 0.0.0.0:8090
 services:
+  # Linux/CI only — macOS uses scripts/setup-dstack-simulator.sh
   dstack-simulator:
     image: phalanetwork/tappd-simulator:latest
     ports:
       - "8090:8090"
+    profiles: ["linux"]
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 3
+
+  juicefs-gateway:
+    image: juicedata/mount:latest
+    ports:
+      - "9000:9000"
+    environment:
+      - MINIO_ROOT_USER=${JFS_GATEWAY_USER:-admin}
+      - MINIO_ROOT_PASSWORD=${JFS_GATEWAY_PASSWORD:-changeme123}
+      - ACCESS_KEY=${GCS_ACCESS_KEY}
+      - SECRET_KEY=${GCS_SECRET_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        juicefs format \
+          --storage gs \
+          --bucket ${GCS_BUCKET_URL} \
+          redis://redis:6379/1 \
+          avinasi 2>/dev/null || true
+        exec juicefs gateway redis://redis:6379/1 0.0.0.0:9000
+
+volumes:
+  redis-data:

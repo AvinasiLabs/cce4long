@@ -24,6 +24,27 @@ struct RequestKeysResponse {
     encrypted_keys: String,
     nonce: String,
     pp_pk: String,
+    jfs: JuiceFsConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JuiceFsConfig {
+    pub meta_url: String,
+    pub backend: JuiceFsBackend,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JuiceFsBackend {
+    pub storage_type: String,
+    pub bucket: String,
+    pub access_key: String,
+    pub secret_key: String,
+}
+
+/// Result of a successful key request, including JuiceFS config.
+pub struct KeyRequestResult {
+    pub bundle: WrappedKeyBundle,
+    pub jfs: JuiceFsConfig,
 }
 
 #[derive(Serialize)]
@@ -54,7 +75,7 @@ impl PpClient {
         }
     }
 
-    /// Send a RequestKeys request to the PP and return the wrapped key bundle.
+    /// Send a RequestKeys request to the PP and return the wrapped key bundle + JuiceFS config.
     pub async fn request_keys(
         &self,
         credential: &JobCredential,
@@ -63,7 +84,7 @@ impl PpClient {
         evidence: &serde_json::Value,
         eph_pk: &[u8; 32],
         dataset_ids: &[DatasetId],
-    ) -> Result<WrappedKeyBundle, AgentError> {
+    ) -> Result<KeyRequestResult, AgentError> {
         let body = RequestKeysBody {
             credential: credential.clone(),
             request_id: hex::encode(request_id),
@@ -98,7 +119,11 @@ impl PpClient {
             .await
             .map_err(|e| AgentError::PpResponse(format!("failed to parse response: {e}")))?;
 
-        parse_key_bundle(&resp_body)
+        let bundle = parse_key_bundle(&resp_body)?;
+        Ok(KeyRequestResult {
+            bundle,
+            jfs: resp_body.jfs,
+        })
     }
 
     /// Submit an encrypted result to the PP for review.
@@ -215,13 +240,34 @@ mod tests {
         assert_eq!(json["dataset_ids"].as_array().unwrap().len(), 2);
     }
 
+    fn dummy_jfs() -> JuiceFsConfig {
+        JuiceFsConfig {
+            meta_url: "redis://localhost:6379/1".to_string(),
+            backend: JuiceFsBackend {
+                storage_type: "gs".to_string(),
+                bucket: String::new(),
+                access_key: String::new(),
+                secret_key: String::new(),
+            },
+        }
+    }
+
+    fn test_response(encrypted_keys: String, nonce: String, pp_pk: String) -> RequestKeysResponse {
+        RequestKeysResponse {
+            encrypted_keys,
+            nonce,
+            pp_pk,
+            jfs: dummy_jfs(),
+        }
+    }
+
     #[test]
     fn parse_key_bundle_valid() {
-        let resp = RequestKeysResponse {
-            encrypted_keys: hex::encode([0xAA; 64]),
-            nonce: hex::encode([0xBB; 12]),
-            pp_pk: hex::encode([0xCC; 32]),
-        };
+        let resp = test_response(
+            hex::encode([0xAA; 64]),
+            hex::encode([0xBB; 12]),
+            hex::encode([0xCC; 32]),
+        );
 
         let bundle = parse_key_bundle(&resp).unwrap();
         assert_eq!(bundle.ciphertext, vec![0xAA; 64]);
@@ -231,11 +277,11 @@ mod tests {
 
     #[test]
     fn parse_key_bundle_invalid_nonce_length() {
-        let resp = RequestKeysResponse {
-            encrypted_keys: hex::encode([0xAA; 64]),
-            nonce: hex::encode([0xBB; 8]),
-            pp_pk: hex::encode([0xCC; 32]),
-        };
+        let resp = test_response(
+            hex::encode([0xAA; 64]),
+            hex::encode([0xBB; 8]),
+            hex::encode([0xCC; 32]),
+        );
 
         let err = parse_key_bundle(&resp).err().expect("should fail");
         assert!(err.to_string().contains("nonce"));
@@ -243,11 +289,11 @@ mod tests {
 
     #[test]
     fn parse_key_bundle_invalid_pp_pk_length() {
-        let resp = RequestKeysResponse {
-            encrypted_keys: hex::encode([0xAA; 64]),
-            nonce: hex::encode([0xBB; 12]),
-            pp_pk: hex::encode([0xCC; 16]),
-        };
+        let resp = test_response(
+            hex::encode([0xAA; 64]),
+            hex::encode([0xBB; 12]),
+            hex::encode([0xCC; 16]),
+        );
 
         let err = parse_key_bundle(&resp).err().expect("should fail");
         assert!(err.to_string().contains("pp_pk"));
@@ -255,11 +301,11 @@ mod tests {
 
     #[test]
     fn parse_key_bundle_invalid_hex() {
-        let resp = RequestKeysResponse {
-            encrypted_keys: "not-valid-hex!".to_string(),
-            nonce: hex::encode([0xBB; 12]),
-            pp_pk: hex::encode([0xCC; 32]),
-        };
+        let resp = test_response(
+            "not-valid-hex!".to_string(),
+            hex::encode([0xBB; 12]),
+            hex::encode([0xCC; 32]),
+        );
 
         let err = parse_key_bundle(&resp).err().expect("should fail");
         assert!(err.to_string().contains("encrypted_keys"));

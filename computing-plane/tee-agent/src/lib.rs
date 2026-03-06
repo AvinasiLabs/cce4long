@@ -9,4 +9,4 @@ pub use attester::{Attester, CocoAttester};
 pub use config::AgentConfig;
 pub use error::AgentError;
 pub use lifecycle::Agent;
-pub use pp_client::PpClient;
+pub use pp_client::{JuiceFsBackend, JuiceFsConfig, KeyRequestResult, PpClient};

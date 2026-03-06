@@ -77,6 +77,13 @@ async fn end_to_end_request_keys() {
         .unwrap();
     let resp_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
+    // Verify JuiceFS config is present
+    assert!(resp_json["jfs"]["meta_url"].is_string());
+    assert!(resp_json["jfs"]["backend"]["storage_type"].is_string());
+    assert!(resp_json["jfs"]["backend"]["bucket"].is_string());
+    assert!(resp_json["jfs"]["backend"]["access_key"].is_string());
+    assert!(resp_json["jfs"]["backend"]["secret_key"].is_string());
+
     let ciphertext = hex::decode(resp_json["encrypted_keys"].as_str().unwrap()).unwrap();
     let nonce_bytes = hex::decode(resp_json["nonce"].as_str().unwrap()).unwrap();
     let pp_pk_bytes = hex::decode(resp_json["pp_pk"].as_str().unwrap()).unwrap();

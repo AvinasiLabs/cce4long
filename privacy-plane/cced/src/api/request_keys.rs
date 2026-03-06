@@ -9,7 +9,7 @@ use tee_verifier::TeeType;
 use compute_controller::JobCredential;
 use key_manager::ecdhe;
 
-use crate::state::AppState;
+use crate::state::{AppState, JuiceFsConfig};
 
 use super::error::ApiError;
 
@@ -28,6 +28,7 @@ pub struct RequestKeysResponse {
     pub encrypted_keys: String,
     pub nonce: String,
     pub pp_pk: String,
+    pub jfs: JuiceFsConfig,
 }
 
 pub async fn request_keys(
@@ -107,11 +108,12 @@ pub async fn request_keys(
     // 10. ECDHE wrap
     let bundle = ecdhe::wrap_keys(&deks, &rek, &eph_pk)?;
 
-    // 11. Return hex-encoded response
+    // 11. Return hex-encoded response with JuiceFS config
     Ok(Json(RequestKeysResponse {
         encrypted_keys: hex::encode(&bundle.ciphertext),
         nonce: hex::encode(bundle.nonce),
         pp_pk: hex::encode(bundle.pp_pk),
+        jfs: state.jfs.clone(),
     }))
 }
 

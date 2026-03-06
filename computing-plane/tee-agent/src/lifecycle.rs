@@ -11,16 +11,18 @@ use key_manager::Key;
 
 use crate::attester::Attester;
 use crate::error::AgentError;
-use crate::pp_client::PpClient;
+use crate::pp_client::{JuiceFsConfig, PpClient};
 use crate::result::{EncryptedFile, compute_result_hash, encrypt_output, write_encrypted_files};
 
-/// Acquired keys from the privacy plane.
+/// Acquired keys and JuiceFS config from the privacy plane.
 #[derive(Debug)]
 pub struct AcquiredKeys {
     /// DEKs mapped by dataset_id.
     pub deks: HashMap<DatasetId, Key>,
     /// Result encryption key.
     pub rek: Key,
+    /// JuiceFS volume config for CVM-side mount.
+    pub jfs: JuiceFsConfig,
 }
 
 /// Full lifecycle result.
@@ -113,7 +115,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
         let evidence = self.attester.get_evidence(&reportdata).await?;
 
         // 5. Request keys from PP
-        let bundle = self
+        let result = self
             .pp_client
             .request_keys(
                 &self.credential,
@@ -126,7 +128,7 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
             .await?;
 
         // 6. Unwrap ECDHE
-        let (deks, rek) = crate::pp_client::unwrap_keys(&bundle, &cvm_secret)?;
+        let (deks, rek) = crate::pp_client::unwrap_keys(&result.bundle, &cvm_secret)?;
 
         // 7. Map DEKs to dataset_ids
         if deks.len() != self.dataset_ids.len() {
@@ -139,11 +141,20 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
         let dek_map: HashMap<DatasetId, Key> =
             self.dataset_ids.iter().copied().zip(deks).collect();
 
-        Ok(AcquiredKeys { deks: dek_map, rek })
+        Ok(AcquiredKeys {
+            deks: dek_map,
+            rek,
+            jfs: result.jfs,
+        })
     }
 
     /// Mount datasets for decryption using acquired DEKs.
     async fn mount_data(&mut self, keys: &AcquiredKeys) -> Result<(), AgentError> {
+        self.decrypt_fs.set_storage_credentials(
+            &keys.jfs.meta_url,
+            &keys.jfs.backend.access_key,
+            &keys.jfs.backend.secret_key,
+        );
         info!(datasets = keys.deks.len(), "mounting datasets");
         for (&dataset_id, dek) in &keys.deks {
             let dir = format!("{}/{dataset_id}", self.data_dir);

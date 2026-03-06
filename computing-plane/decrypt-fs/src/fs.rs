@@ -24,6 +24,12 @@ impl<M: MountBackend> DecryptFs<M> {
         }
     }
 
+    /// Forward storage credentials to the backend.
+    pub fn set_storage_credentials(&self, meta_url: &str, access_key: &str, secret_key: &str) {
+        self.backend
+            .set_storage_credentials(meta_url, access_key, secret_key);
+    }
+
     /// Mount a dataset, making plaintext available at the given path.
     pub async fn mount(
         &mut self,
