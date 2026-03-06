@@ -105,16 +105,29 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::api;
-    use crate::storage::LocalStorage;
+    use crate::dataset_store::{DatasetMeta, DatasetReceipt, DatasetStatus, FileEntry};
 
     use super::*;
 
+    fn dev_root_key() -> [u8; 32] {
+        use hkdf::Hkdf;
+        use sha2::Sha256;
+        let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
+        let mut key = [0u8; 32];
+        hk.expand(b"dev-root", &mut key).expect("valid length");
+        key
+    }
+
     fn dev_state() -> Arc<AppState> {
-        let dir = tempfile::tempdir().unwrap();
-        // Leak tempdir so it lives for the duration of the test
-        let dir = Box::leak(Box::new(dir));
-        let storage = Box::new(LocalStorage::new(dir.path().to_str().unwrap()));
-        Arc::new(AppState::dev(storage))
+        Arc::new(
+            AppState::new(
+                &dev_root_key(),
+                Box::new(crate::dataset_store::InMemoryDatasetStore::new()),
+                tee_verifier::TeeVerifier::new()
+                    .register(tee_verifier::TeeType::Sample, tee_verifier::SampleVerifier),
+            )
+            .unwrap(),
+        )
     }
 
     /// Pre-computed test wallet derived from private key:
@@ -141,11 +154,12 @@ mod tests {
 
     /// Helper: upload a dummy file and finalize the dataset.
     async fn upload_and_finalize(state: &AppState, dataset_id: &DatasetId) {
-        use crate::api::finalize::{DatasetMeta, DatasetStatus, DatasetReceipt, FileEntry};
-
         // Write a dummy file
-        let file_key = format!("{}/data.csv", dataset_id);
-        state.storage.put(&file_key, b"col1,col2\n1,2\n").await.unwrap();
+        state
+            .dataset_store
+            .put_file(dataset_id, "data.csv", b"col1,col2\n1,2\n")
+            .await
+            .unwrap();
 
         // Write finalized metadata
         let meta = DatasetMeta {
@@ -161,10 +175,9 @@ mod tests {
                 content_hash: "dummy".into(),
             }),
         };
-        let meta_key = format!("{}/.meta.json", dataset_id);
         state
-            .storage
-            .put(&meta_key, &serde_json::to_vec(&meta).unwrap())
+            .dataset_store
+            .set_meta(dataset_id, &meta)
             .await
             .unwrap();
     }

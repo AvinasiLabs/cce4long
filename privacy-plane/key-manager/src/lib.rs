@@ -32,32 +32,6 @@ pub trait RootKeyProvider: Send + Sync {
     fn root_key(&self) -> &[u8; 32];
 }
 
-/// Dev-only root key provider with a deterministic seed. NOT for production.
-pub struct DevRootKeyProvider {
-    key: [u8; 32],
-}
-
-impl DevRootKeyProvider {
-    pub fn new() -> Self {
-        let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
-        let mut key = [0u8; 32];
-        hk.expand(b"dev-root", &mut key).expect("valid length");
-        Self { key }
-    }
-}
-
-impl Default for DevRootKeyProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RootKeyProvider for DevRootKeyProvider {
-    fn root_key(&self) -> &[u8; 32] {
-        &self.key
-    }
-}
-
 pub struct KeyManager {
     root_key: [u8; 32],
 }
@@ -67,6 +41,10 @@ impl KeyManager {
         Self {
             root_key: *provider.root_key(),
         }
+    }
+
+    pub fn from_root_key(key: &[u8; 32]) -> Self {
+        Self { root_key: *key }
     }
 
     /// Derive a Data Encryption Key for the given dataset.
@@ -102,12 +80,10 @@ impl KeyManager {
     }
 }
 
-#[cfg(feature = "dstack")]
 pub struct DstackRootKeyProvider {
     key: [u8; 32],
 }
 
-#[cfg(feature = "dstack")]
 impl DstackRootKeyProvider {
     /// Connect to dstack and derive the root key via `GetKey` (recommended API).
     /// endpoint: None = `/var/run/dstack.sock`, Some(path) = Unix socket path,
@@ -134,7 +110,6 @@ impl DstackRootKeyProvider {
     }
 }
 
-#[cfg(feature = "dstack")]
 impl RootKeyProvider for DstackRootKeyProvider {
     fn root_key(&self) -> &[u8; 32] {
         &self.key
@@ -181,16 +156,6 @@ mod tests {
     }
 
     #[test]
-    fn dev_root_key_provider_works() {
-        let provider = DevRootKeyProvider::new();
-        let key = provider.root_key();
-        assert_eq!(key.len(), 32);
-        // Should be deterministic when no env var
-        let provider2 = DevRootKeyProvider::new();
-        assert_eq!(provider.root_key(), provider2.root_key());
-    }
-
-    #[test]
     fn derive_rek_is_deterministic() {
         let km = KeyManager::from_provider(&FixedKeyProvider([0xAA; 32]));
         let k1 = km.derive_rek("job-1").unwrap();
@@ -224,12 +189,12 @@ mod tests {
         assert_eq!(k1, k2);
     }
 
-    #[cfg(feature = "dstack")]
     #[tokio::test]
-    #[ignore] // Requires dstack-guest-agent simulator running
     async fn dstack_root_key_deterministic() {
-        let endpoint = std::env::var("DSTACK_SIMULATOR_ENDPOINT")
-            .expect("set DSTACK_SIMULATOR_ENDPOINT to dstack.sock path");
+        let Ok(endpoint) = std::env::var("DSTACK_SIMULATOR_ENDPOINT") else {
+            eprintln!("skipped: DSTACK_SIMULATOR_ENDPOINT not set");
+            return;
+        };
         let p1 = super::DstackRootKeyProvider::init(Some(&endpoint))
             .await
             .unwrap();

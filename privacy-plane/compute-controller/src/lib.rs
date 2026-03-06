@@ -5,8 +5,8 @@ pub mod credential;
 pub mod error;
 pub mod measurement;
 
-pub use access::{AccessChecker, DevAccessChecker};
+pub use access::AccessChecker;
 pub use key_manager::DatasetId;
 pub use credential::{CredentialService, JobCredential};
 pub use error::ControllerError;
-pub use measurement::{DevMeasurementRegistry, MeasurementRegistry};
+pub use measurement::{AllowAllMeasurements, MeasurementRegistry};

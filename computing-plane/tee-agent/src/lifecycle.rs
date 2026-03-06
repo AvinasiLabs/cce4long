@@ -14,15 +14,15 @@ use crate::error::AgentError;
 use crate::pp_client::{JuiceFsConfig, PpClient};
 use crate::result::{EncryptedFile, compute_result_hash, encrypt_output, write_encrypted_files};
 
-/// Acquired keys and JuiceFS config from the privacy plane.
+/// Acquired keys and storage config from the privacy plane.
 #[derive(Debug)]
 pub struct AcquiredKeys {
     /// DEKs mapped by dataset_id.
     pub deks: HashMap<DatasetId, Key>,
     /// Result encryption key.
     pub rek: Key,
-    /// JuiceFS volume config for CVM-side mount.
-    pub jfs: JuiceFsConfig,
+    /// Storage config for CVM-side mount.
+    pub storage: JuiceFsConfig,
 }
 
 /// Full lifecycle result.
@@ -144,16 +144,16 @@ impl<A: Attester, M: decrypt_fs::MountBackend, R: executor::Runner> Agent<A, M, 
         Ok(AcquiredKeys {
             deks: dek_map,
             rek,
-            jfs: result.jfs,
+            storage: result.storage,
         })
     }
 
     /// Mount datasets for decryption using acquired DEKs.
     async fn mount_data(&mut self, keys: &AcquiredKeys) -> Result<(), AgentError> {
         self.decrypt_fs.set_storage_credentials(
-            &keys.jfs.meta_url,
-            &keys.jfs.backend.access_key,
-            &keys.jfs.backend.secret_key,
+            &keys.storage.meta_url,
+            &keys.storage.backend.access_key,
+            &keys.storage.backend.secret_key,
         );
         info!(datasets = keys.deks.len(), "mounting datasets");
         for (&dataset_id, dek) in &keys.deks {

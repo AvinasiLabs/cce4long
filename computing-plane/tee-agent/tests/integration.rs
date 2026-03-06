@@ -1,15 +1,31 @@
 use std::sync::Arc;
 
 use key_manager::DatasetId;
+use cced::dataset_store::InMemoryDatasetStore;
 use cced::state::AppState;
-use cced::storage::LocalStorage;
 
 use tee_agent::lifecycle::Agent;
 use tee_agent::{CocoAttester, PpClient};
 
-fn dev_state(dir: &str) -> Arc<AppState> {
-    let storage = Box::new(LocalStorage::new(dir));
-    Arc::new(AppState::dev(storage))
+fn dev_root_key() -> [u8; 32] {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+    let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
+    let mut key = [0u8; 32];
+    hk.expand(b"dev-root", &mut key).expect("valid length");
+    key
+}
+
+fn dev_state() -> Arc<AppState> {
+    Arc::new(
+        AppState::new(
+            &dev_root_key(),
+            Box::new(InMemoryDatasetStore::new()),
+            tee_verifier::TeeVerifier::new()
+                .register(tee_verifier::TeeType::Sample, tee_verifier::SampleVerifier),
+        )
+        .unwrap(),
+    )
 }
 
 fn test_id(val: u8) -> DatasetId {
@@ -34,8 +50,8 @@ fn key_agent(
     dataset_ids: Vec<DatasetId>,
 ) -> Agent<
     CocoAttester,
-    decrypt_fs::DevMountBackend,
-    executor::DevRunner,
+    decrypt_fs::InPlaceDecryptBackend,
+    executor::SubprocessRunner,
 > {
     // Create a dummy submit credential (won't be used in key-only tests)
     let submit_credential = serde_json::from_value(serde_json::json!({
@@ -57,8 +73,8 @@ fn key_agent(
         dataset_ids,
         "/tmp/data".to_string(),
         "/tmp/output".to_string(),
-        decrypt_fs::DevMountBackend,
-        executor::DevRunner,
+        decrypt_fs::InPlaceDecryptBackend,
+        executor::SubprocessRunner,
         executor::JobSpec {
             image: "true".to_string(),
             args: vec![],
@@ -69,8 +85,7 @@ fn key_agent(
 
 #[tokio::test]
 async fn acquire_keys_success() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds1 = test_id(0x01);
@@ -94,8 +109,7 @@ async fn acquire_keys_success() {
 
 #[tokio::test]
 async fn acquire_keys_dek_values_consistent_with_pp() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x42);
@@ -113,8 +127,7 @@ async fn acquire_keys_dek_values_consistent_with_pp() {
 
 #[tokio::test]
 async fn acquire_keys_rek_matches_job_id() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);
@@ -130,8 +143,7 @@ async fn acquire_keys_rek_matches_job_id() {
 
 #[tokio::test]
 async fn acquire_keys_invalid_credential_rejected() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);
@@ -147,8 +159,7 @@ async fn acquire_keys_invalid_credential_rejected() {
 
 #[tokio::test]
 async fn acquire_keys_unauthorized_dataset_rejected() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds1 = test_id(0x01);
@@ -165,8 +176,7 @@ async fn acquire_keys_unauthorized_dataset_rejected() {
 
 #[tokio::test]
 async fn acquire_keys_expired_credential_rejected() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);

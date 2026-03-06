@@ -39,7 +39,7 @@ async fn run() -> Result<(), AgentError> {
         config.data_dir,
         config.output_dir,
         decrypt_fs::JuiceFsMountBackend::new(),
-        executor::DevRunner,
+        executor::SubprocessRunner,
         job_spec,
     );
 

@@ -9,7 +9,7 @@ use tee_verifier::TeeType;
 use compute_controller::JobCredential;
 use key_manager::ecdhe;
 
-use crate::state::{AppState, JuiceFsConfig};
+use crate::state::AppState;
 
 use super::error::ApiError;
 
@@ -28,7 +28,7 @@ pub struct RequestKeysResponse {
     pub encrypted_keys: String,
     pub nonce: String,
     pub pp_pk: String,
-    pub jfs: JuiceFsConfig,
+    pub storage: serde_json::Value,
 }
 
 pub async fn request_keys(
@@ -113,7 +113,7 @@ pub async fn request_keys(
         encrypted_keys: hex::encode(&bundle.ciphertext),
         nonce: hex::encode(bundle.nonce),
         pp_pk: hex::encode(bundle.pp_pk),
-        jfs: state.jfs.clone(),
+        storage: state.dataset_store.storage_access_config(),
     }))
 }
 
@@ -125,12 +125,26 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::api;
-    use crate::storage::LocalStorage;
+
+    fn dev_root_key() -> [u8; 32] {
+        use hkdf::Hkdf;
+        use sha2::Sha256;
+        let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
+        let mut key = [0u8; 32];
+        hk.expand(b"dev-root", &mut key).expect("valid length");
+        key
+    }
 
     fn dev_state() -> Arc<AppState> {
-        let dir = tempfile::tempdir().unwrap();
-        let storage = Box::new(LocalStorage::new(dir.path().to_str().unwrap()));
-        Arc::new(AppState::dev(storage))
+        Arc::new(
+            AppState::new(
+                &dev_root_key(),
+                Box::new(crate::dataset_store::InMemoryDatasetStore::new()),
+                tee_verifier::TeeVerifier::new()
+                    .register(tee_verifier::TeeType::Sample, tee_verifier::SampleVerifier),
+            )
+            .unwrap(),
+        )
     }
 
     /// Build a valid request body for testing.

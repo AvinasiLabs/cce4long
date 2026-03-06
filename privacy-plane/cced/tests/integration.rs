@@ -8,12 +8,28 @@ use sha2::{Digest, Sha256, Sha512};
 use tower::ServiceExt;
 use x25519_dalek::{PublicKey, StaticSecret};
 
+use cced::dataset_store::InMemoryDatasetStore;
 use cced::state::AppState;
-use cced::storage::LocalStorage;
 
-fn dev_state(dir: &str) -> Arc<AppState> {
-    let storage = Box::new(LocalStorage::new(dir));
-    Arc::new(AppState::dev(storage))
+fn dev_root_key() -> [u8; 32] {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+    let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
+    let mut key = [0u8; 32];
+    hk.expand(b"dev-root", &mut key).expect("valid length");
+    key
+}
+
+fn dev_state() -> Arc<AppState> {
+    Arc::new(
+        AppState::new(
+            &dev_root_key(),
+            Box::new(InMemoryDatasetStore::new()),
+            tee_verifier::TeeVerifier::new()
+                .register(tee_verifier::TeeType::Sample, tee_verifier::SampleVerifier),
+        )
+        .unwrap(),
+    )
 }
 
 fn test_dataset_id(val: u8) -> DatasetId {
@@ -23,8 +39,7 @@ fn test_dataset_id(val: u8) -> DatasetId {
 /// Full CVM-side flow: issue credential → generate keypair → build evidence → request keys → unwrap → verify DEKs + REK
 #[tokio::test]
 async fn end_to_end_request_keys() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let ds1 = test_dataset_id(0x01);
     let ds2 = test_dataset_id(0x02);
@@ -77,12 +92,8 @@ async fn end_to_end_request_keys() {
         .unwrap();
     let resp_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
 
-    // Verify JuiceFS config is present
-    assert!(resp_json["jfs"]["meta_url"].is_string());
-    assert!(resp_json["jfs"]["backend"]["storage_type"].is_string());
-    assert!(resp_json["jfs"]["backend"]["bucket"].is_string());
-    assert!(resp_json["jfs"]["backend"]["access_key"].is_string());
-    assert!(resp_json["jfs"]["backend"]["secret_key"].is_string());
+    // Verify storage config is present (InMemoryDatasetStore returns {})
+    assert!(resp_json["storage"].is_object());
 
     let ciphertext = hex::decode(resp_json["encrypted_keys"].as_str().unwrap()).unwrap();
     let nonce_bytes = hex::decode(resp_json["nonce"].as_str().unwrap()).unwrap();
@@ -112,8 +123,7 @@ async fn end_to_end_request_keys() {
 /// Upload requires a valid upload token bound to the dataset.
 #[tokio::test]
 async fn upload_with_token() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let wallet = test_dataset_id(0xAA);
     let ds = test_dataset_id(0x42);
@@ -135,8 +145,7 @@ async fn upload_with_token() {
 /// Upload without token returns 401.
 #[tokio::test]
 async fn upload_without_token_rejected() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let ds = test_dataset_id(0x42);
     let app = cced::api::router(state);
@@ -152,8 +161,7 @@ async fn upload_without_token_rejected() {
 /// Upload with token for wrong dataset returns 401.
 #[tokio::test]
 async fn upload_wrong_dataset_token_rejected() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let wallet = test_dataset_id(0xAA);
     let ds = test_dataset_id(0x42);
@@ -176,8 +184,7 @@ async fn upload_wrong_dataset_token_rejected() {
 /// Finalize flow: upload files → finalize → dataset becomes ready.
 #[tokio::test]
 async fn upload_and_finalize() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let wallet = test_dataset_id(0xAA);
     let ds = test_dataset_id(0x42);
@@ -228,8 +235,7 @@ async fn upload_and_finalize() {
 /// Batch upload: many files with deep directory paths, then finalize.
 #[tokio::test]
 async fn upload_batch_deep_dirs_and_finalize() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let wallet = test_dataset_id(0xAA);
     let ds = test_dataset_id(0x55);
@@ -305,7 +311,7 @@ async fn upload_batch_deep_dirs_and_finalize() {
         .collect();
     for (path, _) in &files {
         assert!(
-            receipt_paths.contains(&path.replace(".csv", ".csv.avin").as_str())
+            receipt_paths.contains(&format!("{}.avin", path).as_str())
                 || receipt_paths
                     .iter()
                     .any(|rp| rp.contains(&path.split('/').last().unwrap().to_string())),
@@ -364,8 +370,7 @@ async fn post_json(
 
 #[tokio::test]
 async fn submit_result_success() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let result_hash: [u8; 32] = Sha256::digest(b"encrypted result data").into();
     let body = submit_result_body(&state, "job-submit-1", &result_hash);
@@ -382,8 +387,7 @@ async fn submit_result_success() {
 
 #[tokio::test]
 async fn submit_result_invalid_quote_rejected() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let result_hash = [0xAA; 32];
     let credential =
@@ -410,8 +414,7 @@ async fn submit_result_invalid_quote_rejected() {
 
 #[tokio::test]
 async fn submit_result_duplicate_rejected() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let result_hash: [u8; 32] = Sha256::digest(b"data").into();
 
@@ -428,8 +431,7 @@ async fn submit_result_duplicate_rejected() {
 
 #[tokio::test]
 async fn get_result_returns_wrapped_rek() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     // 1. Submit a result first
     let result_hash: [u8; 32] = Sha256::digest(b"encrypted output").into();
@@ -480,8 +482,7 @@ async fn get_result_returns_wrapped_rek() {
 
 #[tokio::test]
 async fn get_result_not_found() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
 
     let user_secret = StaticSecret::random_from_rng(rand::rngs::OsRng);
     let user_pk = PublicKey::from(&user_secret);

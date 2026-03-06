@@ -1,5 +1,3 @@
-#![cfg(feature = "dstack")]
-
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -7,11 +5,35 @@ use axum::http::{Request, StatusCode};
 use key_manager::DatasetId;
 use tower::ServiceExt;
 
+use cced::dataset_store::InMemoryDatasetStore;
 use cced::state::AppState;
-use cced::storage::LocalStorage;
 
 fn dstack_endpoint() -> Option<String> {
     std::env::var("DSTACK_SIMULATOR_ENDPOINT").ok()
+}
+
+fn dev_root_key() -> [u8; 32] {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+    let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
+    let mut key = [0u8; 32];
+    hk.expand(b"dev-root", &mut key).expect("valid length");
+    key
+}
+
+async fn dstack_state(endpoint: &str) -> Arc<AppState> {
+    let root = key_manager::DstackRootKeyProvider::init(Some(endpoint))
+        .await
+        .unwrap();
+    Arc::new(
+        AppState::new(
+            key_manager::RootKeyProvider::root_key(&root),
+            Box::new(InMemoryDatasetStore::new()),
+            tee_verifier::TeeVerifier::new()
+                .register(tee_verifier::TeeType::Sample, tee_verifier::SampleVerifier),
+        )
+        .unwrap(),
+    )
 }
 
 fn test_dataset_id(val: u8) -> DatasetId {
@@ -19,15 +41,13 @@ fn test_dataset_id(val: u8) -> DatasetId {
 }
 
 #[tokio::test]
-#[ignore] // Requires dstack simulator
 async fn dstack_upload_and_finalize() {
-    let tmp = tempfile::tempdir().unwrap();
-    let storage = Box::new(LocalStorage::new(tmp.path().to_str().unwrap()));
-    let state = Arc::new(
-        AppState::dstack(storage, dstack_endpoint().as_deref())
-            .await
-            .expect("dstack init"),
-    );
+    let Some(endpoint) = dstack_endpoint() else {
+        eprintln!("skipped: DSTACK_SIMULATOR_ENDPOINT not set");
+        return;
+    };
+
+    let state = dstack_state(&endpoint).await;
 
     let wallet = test_dataset_id(0xAA);
     let ds = test_dataset_id(0x42);
@@ -64,23 +84,27 @@ async fn dstack_upload_and_finalize() {
 }
 
 #[tokio::test]
-#[ignore] // Requires dstack simulator
 async fn dstack_keys_differ_from_dev() {
-    let tmp = tempfile::tempdir().unwrap();
-    let storage = Box::new(LocalStorage::new(tmp.path().to_str().unwrap()));
-    let dstack_state = Arc::new(
-        AppState::dstack(storage, dstack_endpoint().as_deref())
-            .await
-            .expect("dstack init"),
+    let Some(endpoint) = dstack_endpoint() else {
+        eprintln!("skipped: DSTACK_SIMULATOR_ENDPOINT not set");
+        return;
+    };
+
+    let dstack = dstack_state(&endpoint).await;
+
+    let dev = Arc::new(
+        AppState::new(
+            &dev_root_key(),
+            Box::new(InMemoryDatasetStore::new()),
+            tee_verifier::TeeVerifier::new()
+                .register(tee_verifier::TeeType::Sample, tee_verifier::SampleVerifier),
+        )
+        .unwrap(),
     );
 
-    let tmp2 = tempfile::tempdir().unwrap();
-    let storage2 = Box::new(LocalStorage::new(tmp2.path().to_str().unwrap()));
-    let dev_state = Arc::new(AppState::dev(storage2));
-
     let ds = test_dataset_id(0x01);
-    let dstack_dek = dstack_state.key_manager.derive_dek(&ds).unwrap();
-    let dev_dek = dev_state.key_manager.derive_dek(&ds).unwrap();
+    let dstack_dek = dstack.key_manager.derive_dek(&ds).unwrap();
+    let dev_dek = dev.key_manager.derive_dek(&ds).unwrap();
 
     assert_ne!(
         dstack_dek.as_bytes(),

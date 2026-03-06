@@ -11,11 +11,11 @@ pub trait ReviewPolicy: Send + Sync {
     async fn review(&self, record: &ResultRecord) -> ReviewDecision;
 }
 
-/// Dev-mode policy: auto-approve everything.
-pub struct DevReviewPolicy;
+/// Policy that auto-approves everything.
+pub struct AutoApprovePolicy;
 
 #[async_trait]
-impl ReviewPolicy for DevReviewPolicy {
+impl ReviewPolicy for AutoApprovePolicy {
     async fn review(&self, _record: &ResultRecord) -> ReviewDecision {
         ResultStatus::Approved
     }

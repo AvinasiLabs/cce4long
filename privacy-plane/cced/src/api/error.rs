@@ -2,13 +2,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
+use crate::dataset_store::DatasetStoreError;
 use crate::encrypt::EncryptError;
-use crate::storage::StorageError;
 
 pub enum ApiError {
     KeyDerivation(key_manager::KeyError),
     Encryption(EncryptError),
-    Storage(StorageError),
+    DatasetStore(DatasetStoreError),
     // RequestKeys errors
     InvalidSignature,
     CredentialExpired,
@@ -38,7 +38,7 @@ impl IntoResponse for ApiError {
         let (status, msg) = match self {
             ApiError::KeyDerivation(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             ApiError::Encryption(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            ApiError::Storage(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            ApiError::DatasetStore(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             ApiError::InvalidSignature => (StatusCode::UNAUTHORIZED, "invalid credential signature".into()),
             ApiError::CredentialExpired => (StatusCode::UNAUTHORIZED, "credential expired".into()),
             ApiError::NonceReused => (StatusCode::UNAUTHORIZED, "credential nonce already used".into()),
@@ -85,9 +85,9 @@ impl From<EncryptError> for ApiError {
     }
 }
 
-impl From<StorageError> for ApiError {
-    fn from(e: StorageError) -> Self {
-        ApiError::Storage(e)
+impl From<DatasetStoreError> for ApiError {
+    fn from(e: DatasetStoreError) -> Self {
+        ApiError::DatasetStore(e)
     }
 }
 

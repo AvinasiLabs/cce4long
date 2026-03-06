@@ -50,6 +50,12 @@ pub struct TeeVerifier {
     verifiers: HashMap<TeeType, Box<dyn Verifier>>,
 }
 
+impl Default for TeeVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TeeVerifier {
     pub fn new() -> Self {
         Self {

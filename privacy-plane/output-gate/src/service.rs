@@ -83,11 +83,11 @@ impl<P: ReviewPolicy> OutputGateService<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::DevReviewPolicy;
+    use crate::review::AutoApprovePolicy;
 
     #[tokio::test]
     async fn submit_and_get() {
-        let svc = OutputGateService::new(DevReviewPolicy);
+        let svc = OutputGateService::new(AutoApprovePolicy);
         let hash = [0xAA; 32];
         let status = svc.submit("job-1", "/output/result", hash).await.unwrap();
         assert_eq!(status, ResultStatus::Approved);
@@ -101,7 +101,7 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_submit_rejected() {
-        let svc = OutputGateService::new(DevReviewPolicy);
+        let svc = OutputGateService::new(AutoApprovePolicy);
         svc.submit("job-1", "/output/a", [0; 32]).await.unwrap();
         let err = svc.submit("job-1", "/output/b", [1; 32]).await.unwrap_err();
         assert!(err.to_string().contains("already submitted"));
@@ -109,7 +109,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_missing_job() {
-        let svc = OutputGateService::new(DevReviewPolicy);
+        let svc = OutputGateService::new(AutoApprovePolicy);
         let err = svc.get("nonexistent").unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
@@ -118,7 +118,7 @@ mod tests {
     async fn concurrent_submit_same_job_exactly_one_succeeds() {
         use std::sync::Arc;
 
-        let svc = Arc::new(OutputGateService::new(DevReviewPolicy));
+        let svc = Arc::new(OutputGateService::new(AutoApprovePolicy));
         let n = 20;
         let mut handles = Vec::with_capacity(n);
         for i in 0..n {

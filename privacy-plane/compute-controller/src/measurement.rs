@@ -5,11 +5,11 @@ pub trait MeasurementRegistry: Send + Sync {
     async fn is_trusted(&self, measurement: &str) -> bool;
 }
 
-/// Dev-only measurement registry: trusts all measurements.
-pub struct DevMeasurementRegistry;
+/// Measurement registry that trusts all measurements.
+pub struct AllowAllMeasurements;
 
 #[async_trait]
-impl MeasurementRegistry for DevMeasurementRegistry {
+impl MeasurementRegistry for AllowAllMeasurements {
     async fn is_trusted(&self, _measurement: &str) -> bool {
         true
     }
@@ -21,7 +21,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_registry_trusts_all() {
-        let reg = DevMeasurementRegistry;
+        let reg = AllowAllMeasurements;
         assert!(reg.is_trusted("anything").await);
         assert!(reg.is_trusted("").await);
     }

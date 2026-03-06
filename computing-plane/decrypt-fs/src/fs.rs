@@ -65,7 +65,7 @@ impl<M: MountBackend> DecryptFs<M> {
 mod tests {
     use super::*;
     use crate::decrypt::encrypt_avin;
-    use crate::mount::DevMountBackend;
+    use crate::mount::InPlaceDecryptBackend;
     use std::fs;
 
     fn test_key(val: u8) -> Key {
@@ -86,7 +86,7 @@ mod tests {
         let encrypted = encrypt_avin(&dek, plaintext).unwrap();
         fs::write(tmp.path().join("data.avin"), &encrypted).unwrap();
 
-        let mut dfs = DecryptFs::new(DevMountBackend);
+        let mut dfs = DecryptFs::new(InPlaceDecryptBackend);
         dfs.mount(test_id(0x01), dek, dir).await.unwrap();
 
         // After mount, plaintext file should be readable directly
@@ -101,7 +101,7 @@ mod tests {
         let dek = test_key(0x42);
         let id = test_id(0x01);
 
-        let mut dfs = DecryptFs::new(DevMountBackend);
+        let mut dfs = DecryptFs::new(InPlaceDecryptBackend);
         dfs.mount(id, dek, dir).await.unwrap();
         assert!(dfs.mounts.contains_key(&id));
 
@@ -130,7 +130,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut dfs = DecryptFs::new(DevMountBackend);
+        let mut dfs = DecryptFs::new(InPlaceDecryptBackend);
         dfs.mount(id1, dek1, tmp1.path().to_str().unwrap().to_string())
             .await
             .unwrap();
@@ -153,7 +153,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().to_str().unwrap().to_string();
 
-        let mut dfs = DecryptFs::new(DevMountBackend);
+        let mut dfs = DecryptFs::new(InPlaceDecryptBackend);
         dfs.mount(test_id(0x11), test_key(0x11), dir.clone())
             .await
             .unwrap();

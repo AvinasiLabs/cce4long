@@ -28,12 +28,12 @@ pub trait MountBackend: Send + Sync {
     fn set_storage_credentials(&self, _meta_url: &str, _access_key: &str, _secret_key: &str) {}
 }
 
-/// Dev-mode mount backend: decrypts .avin files in-place,
+/// Mount backend that decrypts .avin files in-place,
 /// writing plaintext files alongside them (stripping .avin extension).
-pub struct DevMountBackend;
+pub struct InPlaceDecryptBackend;
 
 #[async_trait]
-impl MountBackend for DevMountBackend {
+impl MountBackend for InPlaceDecryptBackend {
     async fn mount(
         &self,
         _dataset_id: &DatasetId,
@@ -87,6 +87,12 @@ struct JfsMountConfig {
 /// Constructed empty; call `set_storage_credentials()` (from PP response) before `mount()`.
 pub struct JuiceFsMountBackend {
     config: OnceLock<JfsMountConfig>,
+}
+
+impl Default for JuiceFsMountBackend {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl JuiceFsMountBackend {
@@ -237,7 +243,7 @@ mod tests {
         let encrypted = encrypt_avin(&dek, plaintext).unwrap();
         fs::write(dir.join("data.avin"), &encrypted).unwrap();
 
-        let backend = DevMountBackend;
+        let backend = InPlaceDecryptBackend;
         backend
             .mount(&test_id(0x01), &dek, dir.to_str().unwrap())
             .await
@@ -257,7 +263,7 @@ mod tests {
         fs::write(dir.join("file1.avin"), encrypt_avin(&dek, b"content-1").unwrap()).unwrap();
         fs::write(dir.join("file2.avin"), encrypt_avin(&dek, b"content-2").unwrap()).unwrap();
 
-        let backend = DevMountBackend;
+        let backend = InPlaceDecryptBackend;
         backend
             .mount(&test_id(0x01), &dek, dir.to_str().unwrap())
             .await
@@ -276,7 +282,7 @@ mod tests {
         fs::write(dir.join("data.avin"), encrypt_avin(&dek, b"encrypted").unwrap()).unwrap();
         fs::write(dir.join("readme.txt"), b"not encrypted").unwrap();
 
-        let backend = DevMountBackend;
+        let backend = InPlaceDecryptBackend;
         backend
             .mount(&test_id(0x01), &dek, dir.to_str().unwrap())
             .await
@@ -290,7 +296,7 @@ mod tests {
     async fn dev_mount_empty_dir() {
         let tmp = tempfile::tempdir().unwrap();
 
-        let backend = DevMountBackend;
+        let backend = InPlaceDecryptBackend;
         backend
             .mount(&test_id(0x01), &test_key(), tmp.path().to_str().unwrap())
             .await
@@ -301,7 +307,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_unmount_is_noop() {
-        let backend = DevMountBackend;
+        let backend = InPlaceDecryptBackend;
         backend.unmount(&test_id(0x01), "/nonexistent").await.unwrap();
     }
 }

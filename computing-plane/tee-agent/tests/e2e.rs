@@ -1,15 +1,31 @@
 use std::sync::Arc;
 
+use cced::dataset_store::InMemoryDatasetStore;
 use cced::state::AppState;
-use cced::storage::LocalStorage;
 use key_manager::DatasetId;
 
 use tee_agent::lifecycle::Agent;
 use tee_agent::{CocoAttester, PpClient};
 
-fn dev_state(dir: &str) -> Arc<AppState> {
-    let storage = Box::new(LocalStorage::new(dir));
-    Arc::new(AppState::dev(storage))
+fn dev_root_key() -> [u8; 32] {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+    let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
+    let mut key = [0u8; 32];
+    hk.expand(b"dev-root", &mut key).expect("valid length");
+    key
+}
+
+fn dev_state() -> Arc<AppState> {
+    Arc::new(
+        AppState::new(
+            &dev_root_key(),
+            Box::new(InMemoryDatasetStore::new()),
+            tee_verifier::TeeVerifier::new()
+                .register(tee_verifier::TeeType::Sample, tee_verifier::SampleVerifier),
+        )
+        .unwrap(),
+    )
 }
 
 fn test_id(val: u8) -> DatasetId {
@@ -29,8 +45,7 @@ async fn start_pp_server(state: Arc<AppState>) -> String {
 /// Upload test data via PP, then run the full agent lifecycle.
 #[tokio::test]
 async fn full_lifecycle_success() {
-    let tmp_storage = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp_storage.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);
@@ -49,13 +64,17 @@ async fn full_lifecycle_success() {
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
     assert_eq!(resp.status(), axum::http::StatusCode::OK);
 
-    // 2. Set up data_dir pointing to PP's storage
+    // 2. Set up data_dir — copy encrypted file from DatasetStore
     let data_dir = tempfile::tempdir().unwrap();
     let dataset_dir = data_dir.path().join(ds.to_string());
     std::fs::create_dir_all(&dataset_dir).unwrap();
 
-    let avin_path = tmp_storage.path().join(format!("{}/data.csv.avin", ds));
-    std::fs::copy(&avin_path, dataset_dir.join("data.csv.avin")).unwrap();
+    let avin_data = state
+        .dataset_store
+        .get_file(&ds, "data.csv.avin")
+        .await
+        .unwrap();
+    std::fs::write(dataset_dir.join("data.csv.avin"), &avin_data).unwrap();
 
     // 3. Set up output_dir
     let output_dir = tempfile::tempdir().unwrap();
@@ -74,8 +93,8 @@ async fn full_lifecycle_success() {
         vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
-        decrypt_fs::DevMountBackend,
-        executor::DevRunner,
+        decrypt_fs::InPlaceDecryptBackend,
+        executor::SubprocessRunner,
         executor::JobSpec {
             image: "sh".to_string(),
             args: vec![
@@ -107,8 +126,7 @@ async fn full_lifecycle_success() {
 
 #[tokio::test]
 async fn lifecycle_key_failure_aborts() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);
@@ -130,8 +148,8 @@ async fn lifecycle_key_failure_aborts() {
         vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
-        decrypt_fs::DevMountBackend,
-        executor::DevRunner,
+        decrypt_fs::InPlaceDecryptBackend,
+        executor::SubprocessRunner,
         executor::JobSpec {
             image: "echo".to_string(),
             args: vec!["should-not-run".to_string()],
@@ -148,8 +166,7 @@ async fn lifecycle_key_failure_aborts() {
 
 #[tokio::test]
 async fn lifecycle_execution_failure_aborts() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);
@@ -172,8 +189,8 @@ async fn lifecycle_execution_failure_aborts() {
         vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
-        decrypt_fs::DevMountBackend,
-        executor::DevRunner,
+        decrypt_fs::InPlaceDecryptBackend,
+        executor::SubprocessRunner,
         executor::JobSpec {
             image: "/nonexistent/command/xyzzy".to_string(),
             args: vec![],
@@ -187,8 +204,7 @@ async fn lifecycle_execution_failure_aborts() {
 
 #[tokio::test]
 async fn lifecycle_result_encryption_valid() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);
@@ -207,8 +223,8 @@ async fn lifecycle_result_encryption_valid() {
         vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
-        decrypt_fs::DevMountBackend,
-        executor::DevRunner,
+        decrypt_fs::InPlaceDecryptBackend,
+        executor::SubprocessRunner,
         executor::JobSpec {
             image: "sh".to_string(),
             args: vec![
@@ -242,8 +258,7 @@ async fn full_lifecycle_with_submit() {
     use rand::rngs::OsRng;
     use x25519_dalek::{PublicKey, StaticSecret};
 
-    let tmp_storage = tempfile::tempdir().unwrap();
-    let state = dev_state(tmp_storage.path().to_str().unwrap());
+    let state = dev_state();
     let pp_url = start_pp_server(state.clone()).await;
 
     let ds = test_id(0x01);
@@ -261,12 +276,17 @@ async fn full_lifecycle_with_submit() {
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
     assert_eq!(resp.status(), axum::http::StatusCode::OK);
 
-    // 2. Set up data dir
+    // 2. Set up data dir — copy encrypted file from DatasetStore
     let data_dir = tempfile::tempdir().unwrap();
     let dataset_dir = data_dir.path().join(ds.to_string());
     std::fs::create_dir_all(&dataset_dir).unwrap();
-    let avin_path = tmp_storage.path().join(format!("{}/data.csv.avin", ds));
-    std::fs::copy(&avin_path, dataset_dir.join("data.csv.avin")).unwrap();
+
+    let avin_data = state
+        .dataset_store
+        .get_file(&ds, "data.csv.avin")
+        .await
+        .unwrap();
+    std::fs::write(dataset_dir.join("data.csv.avin"), &avin_data).unwrap();
 
     // 3. Set up output dir
     let output_dir = tempfile::tempdir().unwrap();
@@ -289,8 +309,8 @@ async fn full_lifecycle_with_submit() {
         vec![ds],
         data_dir.path().to_str().unwrap().to_string(),
         output_dir.path().to_str().unwrap().to_string(),
-        decrypt_fs::DevMountBackend,
-        executor::DevRunner,
+        decrypt_fs::InPlaceDecryptBackend,
+        executor::SubprocessRunner,
         executor::JobSpec {
             image: "sh".to_string(),
             args: vec![

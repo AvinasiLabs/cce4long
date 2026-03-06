@@ -14,11 +14,11 @@ pub trait AccessVerifier: Send + Sync {
     async fn is_owner(&self, dataset_id: &DatasetId, user: &[u8; 20]) -> anyhow::Result<bool>;
 }
 
-/// Dev-mode access verifier that always returns true.
-pub struct DevAccessVerifier;
+/// Access verifier that always returns true.
+pub struct AllowAllAccessVerifier;
 
 #[async_trait]
-impl AccessVerifier for DevAccessVerifier {
+impl AccessVerifier for AllowAllAccessVerifier {
     async fn has_access(&self, _dataset_id: &DatasetId, _user: &[u8; 20]) -> anyhow::Result<bool> {
         Ok(true)
     }
@@ -38,7 +38,7 @@ mod tests {
 
     #[tokio::test]
     async fn dev_verifier_always_grants_access() {
-        let verifier = DevAccessVerifier;
+        let verifier = AllowAllAccessVerifier;
         let user = [0xAA; 20];
         assert!(verifier.has_access(&test_id(), &user).await.unwrap());
         assert!(verifier.is_owner(&test_id(), &user).await.unwrap());

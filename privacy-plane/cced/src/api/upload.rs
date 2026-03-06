@@ -18,7 +18,6 @@ pub struct UploadResponse {
     pub path: String,
     pub chunks: u32,
     pub size_bytes: usize,
-    pub stored_path: String,
 }
 
 pub async fn upload_dataset(
@@ -50,12 +49,15 @@ pub async fn upload_dataset(
         u32::from_be_bytes(encrypted[5..9].try_into().unwrap())
     };
 
-    let key = format!("{}/{}.avin", dataset_id, path);
-    let stored_path = state.storage.put(&key, &encrypted).await?;
+    let avin_path = format!("{}.avin", path);
+    state
+        .dataset_store
+        .put_file(&dataset_id, &avin_path, &encrypted)
+        .await?;
 
     tracing::info!(
         dataset_id = %dataset_id,
-        stored_path = %stored_path,
+        path = %avin_path,
         chunks = chunk_count,
         "upload_dataset complete"
     );
@@ -65,6 +67,5 @@ pub async fn upload_dataset(
         path,
         chunks: chunk_count,
         size_bytes: body.len(),
-        stored_path,
     }))
 }

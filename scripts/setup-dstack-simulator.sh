@@ -7,8 +7,8 @@
 # How it works:
 #   The dstack-sdk dependency (in key-manager/Cargo.toml) points to the dstack
 #   monorepo. Cargo caches the full monorepo source in ~/.cargo/git/checkouts/.
-#   This script reuses that checkout to build the guest-agent binary as a simulator.
-#   If the source isn't cached yet, the script fetches it automatically.
+#   This script reuses that checkout to build the guest-agent binary as a
+#   simulator. If the source isn't cached yet, the script fetches it via cargo.
 #
 # Usage:
 #   ./scripts/setup-dstack-simulator.sh          # build
@@ -22,7 +22,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Resolve the dstack monorepo checkout from cargo's git cache.
 # cargo clones https://github.com/Dstack-TEE/dstack.git into
 # ~/.cargo/git/checkouts/dstack-<hash>/<rev>/ when building key-manager
-# with --features dstack. We reuse that checkout to build the simulator.
+# We reuse that checkout to build the simulator.
 DSTACK_REV="d3275d1"
 
 # Find checkout dir dynamically (the hash before rev varies by machine)
@@ -31,7 +31,7 @@ DSTACK_CHECKOUT="$(find "$HOME/.cargo/git/checkouts" -maxdepth 2 -type d -name "
 if [ -z "$DSTACK_CHECKOUT" ] || [ ! -d "$DSTACK_CHECKOUT/guest-agent" ]; then
     echo "dstack source (rev $DSTACK_REV) not found in cargo cache. Fetching..."
     cd "$REPO_ROOT"
-    cargo build -p key-manager --features dstack
+    cargo build -p key-manager
     DSTACK_CHECKOUT="$(find "$HOME/.cargo/git/checkouts" -maxdepth 2 -type d -name "$DSTACK_REV" -path "*/dstack-*" 2>/dev/null | head -1)"
     if [ -z "$DSTACK_CHECKOUT" ]; then
         echo "Failed to fetch dstack source."
@@ -66,7 +66,7 @@ else
     echo ""
     echo "To run dstack integration tests:"
     echo "  DSTACK_SIMULATOR_ENDPOINT=$SIMULATOR_DIR/dstack.sock \\"
-    echo "    cargo test -p key-manager --features dstack -- --ignored"
+    echo "    cargo test -p key-manager -- --ignored"
     echo "  DSTACK_SIMULATOR_ENDPOINT=$SIMULATOR_DIR/dstack.sock \\"
-    echo "    cargo test -p cced --features dstack -- --ignored"
+    echo "    cargo test -p cced -- --ignored"
 fi

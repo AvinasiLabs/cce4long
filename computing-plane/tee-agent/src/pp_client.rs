@@ -24,27 +24,33 @@ struct RequestKeysResponse {
     encrypted_keys: String,
     nonce: String,
     pp_pk: String,
-    jfs: JuiceFsConfig,
+    storage: JuiceFsConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct JuiceFsConfig {
+    #[serde(default)]
     pub meta_url: String,
+    #[serde(default)]
     pub backend: JuiceFsBackend,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct JuiceFsBackend {
+    #[serde(default)]
     pub storage_type: String,
+    #[serde(default)]
     pub bucket: String,
+    #[serde(default)]
     pub access_key: String,
+    #[serde(default)]
     pub secret_key: String,
 }
 
-/// Result of a successful key request, including JuiceFS config.
+/// Result of a successful key request, including storage config.
 pub struct KeyRequestResult {
     pub bundle: WrappedKeyBundle,
-    pub jfs: JuiceFsConfig,
+    pub storage: JuiceFsConfig,
 }
 
 #[derive(Serialize)]
@@ -122,7 +128,7 @@ impl PpClient {
         let bundle = parse_key_bundle(&resp_body)?;
         Ok(KeyRequestResult {
             bundle,
-            jfs: resp_body.jfs,
+            storage: resp_body.storage,
         })
     }
 
@@ -257,7 +263,7 @@ mod tests {
             encrypted_keys,
             nonce,
             pp_pk,
-            jfs: dummy_jfs(),
+            storage: dummy_jfs(),
         }
     }
 

@@ -35,6 +35,7 @@ kbs-types = "0.14"
 
 [dev-dependencies]
 cced.workspace = true
+hkdf.workspace = true
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 axum.workspace = true

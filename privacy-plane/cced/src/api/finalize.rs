@@ -1,44 +1,17 @@
 use axum::extract::{Path, State};
 use axum::Json;
 use key_manager::DatasetId;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+use crate::dataset_store::{
+    DatasetMeta, DatasetReceipt, DatasetStatus, DatasetStoreError, FileEntry,
+};
 use crate::state::AppState;
 use crate::upload_token;
 
 use super::error::ApiError;
-
-/// Metadata stored at `{dataset_id}/.meta.json`.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DatasetMeta {
-    pub status: DatasetStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub receipt: Option<DatasetReceipt>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DatasetStatus {
-    Uploading,
-    Ready,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatasetReceipt {
-    pub dataset_id: DatasetId,
-    pub files: Vec<FileEntry>,
-    pub total_size: u64,
-    pub content_hash: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileEntry {
-    pub path: String,
-    pub size: u64,
-    pub hash: String,
-}
 
 #[derive(Serialize)]
 pub struct FinalizeResponse {
@@ -47,33 +20,25 @@ pub struct FinalizeResponse {
     pub receipt: DatasetReceipt,
 }
 
-fn meta_key(dataset_id: &DatasetId) -> String {
-    format!("{}/.meta.json", dataset_id)
-}
-
-/// Ensure the dataset metadata file exists (create as `uploading` if not).
+/// Ensure the dataset metadata exists (create as `uploading` if not).
 pub async fn ensure_uploading(
     state: &AppState,
     dataset_id: &DatasetId,
 ) -> Result<(), ApiError> {
-    let key = meta_key(dataset_id);
-    match state.storage.get(&key).await {
-        Ok(data) => {
-            let meta: DatasetMeta = serde_json::from_slice(&data)
-                .map_err(|e| ApiError::Storage(crate::storage::StorageError::Io(e.to_string())))?;
+    match state.dataset_store.get_meta(dataset_id).await? {
+        Some(meta) => {
             if meta.status == DatasetStatus::Ready {
                 return Err(ApiError::DatasetAlreadyFinalized);
             }
             Ok(())
         }
-        Err(_) => {
+        None => {
             // First upload — create metadata
             let meta = DatasetMeta {
                 status: DatasetStatus::Uploading,
                 receipt: None,
             };
-            let json = serde_json::to_vec(&meta).unwrap();
-            state.storage.put(&key, &json).await?;
+            state.dataset_store.set_meta(dataset_id, &meta).await?;
             Ok(())
         }
     }
@@ -84,15 +49,10 @@ pub async fn check_finalized(
     state: &AppState,
     dataset_id: &DatasetId,
 ) -> Result<(), ApiError> {
-    let key = meta_key(dataset_id);
-    let data = state.storage.get(&key).await
-        .map_err(|_| ApiError::DatasetNotFinalized)?;
-    let meta: DatasetMeta = serde_json::from_slice(&data)
-        .map_err(|_| ApiError::DatasetNotFinalized)?;
-    if meta.status != DatasetStatus::Ready {
-        return Err(ApiError::DatasetNotFinalized);
+    match state.dataset_store.get_meta(dataset_id).await? {
+        Some(meta) if meta.status == DatasetStatus::Ready => Ok(()),
+        _ => Err(ApiError::DatasetNotFinalized),
     }
-    Ok(())
 }
 
 /// POST /v1/datasets/{dataset_id}/finalize
@@ -120,43 +80,32 @@ pub async fn finalize_dataset(
     );
 
     // 2. Check current state — must be `uploading`
-    let mk = meta_key(&dataset_id);
-    match state.storage.get(&mk).await {
-        Ok(data) => {
-            let meta: DatasetMeta = serde_json::from_slice(&data)
-                .map_err(|e| ApiError::Storage(crate::storage::StorageError::Io(e.to_string())))?;
+    match state.dataset_store.get_meta(&dataset_id).await? {
+        Some(meta) => {
             if meta.status == DatasetStatus::Ready {
                 return Err(ApiError::DatasetAlreadyFinalized);
             }
         }
-        Err(_) => {
-            return Err(ApiError::Storage(crate::storage::StorageError::Io(
+        None => {
+            return Err(ApiError::DatasetStore(DatasetStoreError::Backend(
                 "no files uploaded for this dataset".into(),
             )));
         }
     }
 
     // 3. List all uploaded files under this dataset
-    let prefix = format!("{}/", dataset_id);
-    let all_keys = state.storage.list(&prefix).await?;
+    let file_paths = state.dataset_store.list_files(&dataset_id).await?;
 
     let mut files = Vec::new();
     let mut ordered_hashes = Vec::new();
 
-    for key in &all_keys {
-        // Skip the metadata file itself
-        if key.ends_with("/.meta.json") {
-            continue;
-        }
-        let data = state.storage.get(key).await?;
+    for path in &file_paths {
+        let data = state.dataset_store.get_file(&dataset_id, path).await?;
         let hash = Sha256::digest(&data);
         let hash_hex = hex::encode(hash);
 
-        // Derive relative path (strip prefix)
-        let rel_path = key.strip_prefix(&prefix).unwrap_or(key);
-
         files.push(FileEntry {
-            path: rel_path.to_string(),
+            path: path.clone(),
             size: data.len() as u64,
             hash: hash_hex.clone(),
         });
@@ -188,8 +137,7 @@ pub async fn finalize_dataset(
         status: DatasetStatus::Ready,
         receipt: Some(receipt.clone()),
     };
-    let json = serde_json::to_vec(&meta).unwrap();
-    state.storage.put(&mk, &json).await?;
+    state.dataset_store.set_meta(&dataset_id, &meta).await?;
 
     tracing::info!(
         dataset_id = %dataset_id,
@@ -204,4 +152,3 @@ pub async fn finalize_dataset(
         receipt,
     }))
 }
-

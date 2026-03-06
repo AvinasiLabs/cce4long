@@ -17,11 +17,11 @@ pub trait Runner: Send + Sync {
     ) -> Result<ExecutionResult, ExecutorError>;
 }
 
-/// Dev-mode runner using local subprocess execution.
-pub struct DevRunner;
+/// Runner that executes jobs as local subprocesses.
+pub struct SubprocessRunner;
 
 #[async_trait]
-impl Runner for DevRunner {
+impl Runner for SubprocessRunner {
     async fn run(
         &self,
         spec: &JobSpec,
@@ -86,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn successful_execution() {
-        let runner = DevRunner;
+        let runner = SubprocessRunner;
         let spec = echo_spec("hello from executor");
         let result = runner.run(&spec, "/tmp", "/tmp").await.unwrap();
 
@@ -97,7 +97,7 @@ mod tests {
 
     #[tokio::test]
     async fn nonzero_exit_code() {
-        let runner = DevRunner;
+        let runner = SubprocessRunner;
         let spec = JobSpec {
             image: "sh".to_string(),
             args: vec!["-c".to_string(), "exit 42".to_string()],
@@ -109,7 +109,7 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_kills_process() {
-        let runner = DevRunner;
+        let runner = SubprocessRunner;
         let spec = JobSpec {
             image: "sleep".to_string(),
             args: vec!["60".to_string()],
@@ -123,7 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn command_not_found() {
-        let runner = DevRunner;
+        let runner = SubprocessRunner;
         let spec = JobSpec {
             image: "/nonexistent/command/xyzzy".to_string(),
             args: vec![],
@@ -135,7 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn env_vars_passed() {
-        let runner = DevRunner;
+        let runner = SubprocessRunner;
         let spec = JobSpec {
             image: "sh".to_string(),
             args: vec![
@@ -154,7 +154,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let output_dir = tmp.path().to_str().unwrap();
 
-        let runner = DevRunner;
+        let runner = SubprocessRunner;
         let spec = JobSpec {
             image: "sh".to_string(),
             args: vec![
@@ -173,7 +173,7 @@ mod tests {
 
     #[tokio::test]
     async fn resource_usage_recorded() {
-        let runner = DevRunner;
+        let runner = SubprocessRunner;
         let spec = echo_spec("quick");
         let result = runner.run(&spec, "/tmp", "/tmp").await.unwrap();
         assert!(result.usage.wall_time.as_millis() > 0);
