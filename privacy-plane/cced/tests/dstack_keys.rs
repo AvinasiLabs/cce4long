@@ -1,25 +1,15 @@
+mod common;
+
 use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use key_manager::DatasetId;
 use tower::ServiceExt;
 
 use cced::dataset_store::InMemoryDatasetStore;
 use cced::state::AppState;
 
-fn dstack_endpoint() -> Option<String> {
-    std::env::var("DSTACK_SIMULATOR_ENDPOINT").ok()
-}
-
-fn dev_root_key() -> [u8; 32] {
-    use hkdf::Hkdf;
-    use sha2::Sha256;
-    let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
-    let mut key = [0u8; 32];
-    hk.expand(b"dev-root", &mut key).expect("valid length");
-    key
-}
+use common::{dev_root_key, require_env, test_dataset_id};
 
 async fn dstack_state(endpoint: &str) -> Arc<AppState> {
     let root = key_manager::DstackRootKeyProvider::init(Some(endpoint))
@@ -36,16 +26,9 @@ async fn dstack_state(endpoint: &str) -> Arc<AppState> {
     )
 }
 
-fn test_dataset_id(val: u8) -> DatasetId {
-    DatasetId::from([val; 20])
-}
-
 #[tokio::test]
 async fn dstack_upload_and_finalize() {
-    let Some(endpoint) = dstack_endpoint() else {
-        eprintln!("skipped: DSTACK_SIMULATOR_ENDPOINT not set");
-        return;
-    };
+    let endpoint = require_env!("DSTACK_SIMULATOR_ENDPOINT");
 
     let state = dstack_state(&endpoint).await;
 
@@ -54,7 +37,6 @@ async fn dstack_upload_and_finalize() {
 
     let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
 
-    // Upload
     let app = cced::api::router(state.clone());
     let req = Request::builder()
         .method("POST")
@@ -65,7 +47,6 @@ async fn dstack_upload_and_finalize() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    // Finalize
     let app = cced::api::router(state.clone());
     let req = Request::builder()
         .method("POST")
@@ -85,10 +66,7 @@ async fn dstack_upload_and_finalize() {
 
 #[tokio::test]
 async fn dstack_keys_differ_from_dev() {
-    let Some(endpoint) = dstack_endpoint() else {
-        eprintln!("skipped: DSTACK_SIMULATOR_ENDPOINT not set");
-        return;
-    };
+    let endpoint = require_env!("DSTACK_SIMULATOR_ENDPOINT");
 
     let dstack = dstack_state(&endpoint).await;
 

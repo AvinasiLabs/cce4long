@@ -1,48 +1,10 @@
-use std::sync::Arc;
-
-use cced::dataset_store::InMemoryDatasetStore;
-use cced::state::AppState;
-use key_manager::DatasetId;
+mod common;
 
 use tee_agent::lifecycle::Agent;
 use tee_agent::{CocoAttester, PpClient};
 
-fn dev_root_key() -> [u8; 32] {
-    use hkdf::Hkdf;
-    use sha2::Sha256;
-    let hk = Hkdf::<Sha256>::new(None, b"cce4long-dev-root-key");
-    let mut key = [0u8; 32];
-    hk.expand(b"dev-root", &mut key).expect("valid length");
-    key
-}
+use common::{dev_state, start_pp_server, test_id};
 
-fn dev_state() -> Arc<AppState> {
-    Arc::new(
-        AppState::new(
-            &dev_root_key(),
-            Box::new(InMemoryDatasetStore::new()),
-            tee_verifier::TeeVerifier::new()
-                .register(tee_verifier::TeeType::Sample, tee_verifier::SampleVerifier),
-        )
-        .unwrap(),
-    )
-}
-
-fn test_id(val: u8) -> DatasetId {
-    DatasetId::from([val; 20])
-}
-
-async fn start_pp_server(state: Arc<AppState>) -> String {
-    let app = cced::api::router(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-    format!("http://{addr}")
-}
-
-/// Upload test data via PP, then run the full agent lifecycle.
 #[tokio::test]
 async fn full_lifecycle_success() {
     let state = dev_state();
@@ -51,7 +13,6 @@ async fn full_lifecycle_success() {
     let ds = test_id(0x01);
     let wallet = test_id(0xAA);
 
-    // 1. Upload test data to PP
     let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
     let test_data = b"col1,col2\nfoo,42\nbar,99";
     let app = cced::api::router(state.clone());
@@ -64,7 +25,6 @@ async fn full_lifecycle_success() {
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
     assert_eq!(resp.status(), axum::http::StatusCode::OK);
 
-    // 2. Set up data_dir — copy encrypted file from DatasetStore
     let data_dir = tempfile::tempdir().unwrap();
     let dataset_dir = data_dir.path().join(ds.to_string());
     std::fs::create_dir_all(&dataset_dir).unwrap();
@@ -76,14 +36,11 @@ async fn full_lifecycle_success() {
         .unwrap();
     std::fs::write(dataset_dir.join("data.csv.avin"), &avin_data).unwrap();
 
-    // 3. Set up output_dir
     let output_dir = tempfile::tempdir().unwrap();
 
-    // 4. Issue credentials
     let credential = state.credential_service.issue("job-e2e", "alice", vec![ds]);
     let submit_credential = state.credential_service.issue("job-e2e", "alice", vec![ds]);
 
-    // 5. Build and run agent
     let attester = CocoAttester::new().unwrap();
     let mut agent = Agent::new(
         attester,
@@ -107,20 +64,16 @@ async fn full_lifecycle_success() {
 
     let result = agent.run().await.unwrap();
 
-    // 6. Verify execution succeeded
     assert_eq!(result.execution.exit_code, 0);
 
-    // 7. Verify encrypted output is valid
     assert_eq!(result.encrypted_files.len(), 1);
     assert_eq!(result.encrypted_files[0].filename, "result.txt");
 
-    // 8. Verify REK can decrypt the output
     let rek = state.key_manager.derive_rek("job-e2e").unwrap();
     let decrypted = decrypt_fs::decrypt_avin(&rek, &result.encrypted_files[0].data).unwrap();
     let output_text = String::from_utf8(decrypted).unwrap();
     assert!(output_text.contains("computation complete"));
 
-    // 9. Verify result was submitted and approved
     assert_eq!(result.submit_status, "approved");
 }
 
@@ -131,7 +84,6 @@ async fn lifecycle_key_failure_aborts() {
 
     let ds = test_id(0x01);
 
-    // Tampered credential → key acquisition fails
     let mut credential = state.credential_service.issue("job-1", "alice", vec![ds]);
     credential.job_id = "tampered".to_string();
     let submit_credential = state.credential_service.issue("job-1", "alice", vec![ds]);
@@ -160,7 +112,6 @@ async fn lifecycle_key_failure_aborts() {
     let err = agent.run().await.unwrap_err();
     assert!(err.to_string().contains("PP returned"));
 
-    // Verify algorithm was never executed (no output files)
     assert!(std::fs::read_dir(output_dir.path()).unwrap().count() == 0);
 }
 
@@ -238,21 +189,17 @@ async fn lifecycle_result_encryption_valid() {
     let result = agent.run().await.unwrap();
     assert!(!result.encrypted_files.is_empty());
 
-    // Encrypted file should NOT be readable as plaintext
     let raw = &result.encrypted_files[0].data;
     assert!(raw.starts_with(b"AVIN"));
 
-    // But should be decryptable with the correct REK
     let rek = state.key_manager.derive_rek("job-enc").unwrap();
     let decrypted = decrypt_fs::decrypt_avin(&rek, raw).unwrap();
     assert!(String::from_utf8_lossy(&decrypted).contains("secret_result"));
 
-    // Wrong key should fail
     let wrong_key = key_manager::Key([0xFF; 32]);
     assert!(decrypt_fs::decrypt_avin(&wrong_key, raw).is_err());
 }
 
-/// Full end-to-end lifecycle with submit → get_result → ECDHE unwrap REK → decrypt → verify
 #[tokio::test]
 async fn full_lifecycle_with_submit() {
     use rand::rngs::OsRng;
@@ -264,7 +211,6 @@ async fn full_lifecycle_with_submit() {
     let ds = test_id(0x01);
     let wallet = test_id(0xAA);
 
-    // 1. Upload test data
     let token = cced::upload_token::issue_token(wallet, ds, &state.upload_hmac_key, 3600);
     let app = cced::api::router(state.clone());
     let req = axum::http::Request::builder()
@@ -276,7 +222,6 @@ async fn full_lifecycle_with_submit() {
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
     assert_eq!(resp.status(), axum::http::StatusCode::OK);
 
-    // 2. Set up data dir — copy encrypted file from DatasetStore
     let data_dir = tempfile::tempdir().unwrap();
     let dataset_dir = data_dir.path().join(ds.to_string());
     std::fs::create_dir_all(&dataset_dir).unwrap();
@@ -288,10 +233,8 @@ async fn full_lifecycle_with_submit() {
         .unwrap();
     std::fs::write(dataset_dir.join("data.csv.avin"), &avin_data).unwrap();
 
-    // 3. Set up output dir
     let output_dir = tempfile::tempdir().unwrap();
 
-    // 4. Issue credentials
     let credential = state
         .credential_service
         .issue("job-submit", "alice", vec![ds]);
@@ -299,7 +242,6 @@ async fn full_lifecycle_with_submit() {
         .credential_service
         .issue("job-submit", "alice", vec![ds]);
 
-    // 5. Run agent lifecycle (includes submit)
     let attester = CocoAttester::new().unwrap();
     let mut agent = Agent::new(
         attester,
@@ -324,7 +266,6 @@ async fn full_lifecycle_with_submit() {
     let result = agent.run().await.unwrap();
     assert_eq!(result.submit_status, "approved");
 
-    // 6. Consumer: get_result via PP
     let user_secret = StaticSecret::random_from_rng(OsRng);
     let user_pk = PublicKey::from(&user_secret);
 
@@ -344,7 +285,6 @@ async fn full_lifecycle_with_submit() {
     let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
     assert_eq!(resp.status(), axum::http::StatusCode::OK);
 
-    // 7. Parse response
     let body_bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
         .await
         .unwrap();
@@ -353,7 +293,6 @@ async fn full_lifecycle_with_submit() {
     assert_eq!(resp_json["status"].as_str().unwrap(), "approved");
     assert!(!resp_json["result_hash"].as_str().unwrap().is_empty());
 
-    // 8. Unwrap REK via ECDHE
     let ciphertext = hex::decode(resp_json["encrypted_rek"].as_str().unwrap()).unwrap();
     let nonce_bytes = hex::decode(resp_json["nonce"].as_str().unwrap()).unwrap();
     let pp_pk_bytes = hex::decode(resp_json["pp_pk"].as_str().unwrap()).unwrap();
@@ -367,11 +306,9 @@ async fn full_lifecycle_with_submit() {
     let (deks, rek) = key_manager::ecdhe::unwrap_keys(&bundle, &user_secret).unwrap();
     assert_eq!(deks.len(), 0);
 
-    // 9. Verify REK matches what PP would derive
     let expected_rek = state.key_manager.derive_rek("job-submit").unwrap();
     assert_eq!(rek.0, expected_rek.0);
 
-    // 10. Decrypt the encrypted output with the REK
     let encrypted = &result.encrypted_files[0].data;
     let decrypted = decrypt_fs::decrypt_avin(&rek, encrypted).unwrap();
     let text = String::from_utf8(decrypted).unwrap();

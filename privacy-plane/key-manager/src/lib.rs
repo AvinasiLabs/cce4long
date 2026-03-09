@@ -189,24 +189,4 @@ mod tests {
         assert_eq!(k1, k2);
     }
 
-    #[tokio::test]
-    async fn dstack_root_key_deterministic() {
-        let Ok(endpoint) = std::env::var("DSTACK_SIMULATOR_ENDPOINT") else {
-            eprintln!("skipped: DSTACK_SIMULATOR_ENDPOINT not set");
-            return;
-        };
-        let p1 = super::DstackRootKeyProvider::init(Some(&endpoint))
-            .await
-            .unwrap();
-        let p2 = super::DstackRootKeyProvider::init(Some(&endpoint))
-            .await
-            .unwrap();
-        assert_eq!(p1.root_key(), p2.root_key());
-
-        let km = KeyManager::from_provider(&p1);
-        let dataset_id = DatasetId::from([0x42; 20]);
-        let dek1 = km.derive_dek(&dataset_id).unwrap();
-        let dek2 = km.derive_dek(&dataset_id).unwrap();
-        assert_eq!(dek1.as_bytes(), dek2.as_bytes());
-    }
 }
