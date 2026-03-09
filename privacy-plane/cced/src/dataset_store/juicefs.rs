@@ -116,11 +116,14 @@ impl DatasetStore for JuiceFsDatasetStore {
         path: &str,
     ) -> Result<Vec<u8>, DatasetStoreError> {
         let key = s3_key(id, path);
-        let response = self
-            .bucket
-            .get_object(&key)
-            .await
-            .map_err(|e| DatasetStoreError::Backend(e.to_string()))?;
+        let response = self.bucket.get_object(&key).await.map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("404") || msg.contains("NoSuchKey") {
+                DatasetStoreError::NotFound(key.clone())
+            } else {
+                DatasetStoreError::Backend(msg)
+            }
+        })?;
 
         let status = response.status_code();
         if status == 404 {

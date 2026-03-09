@@ -68,3 +68,6 @@ attester = { git = "https://github.com/confidential-containers/guest-components"
 
 # TEE Quote Verification (Intel DCAP)
 dcap-qvl = "0.3"
+
+# Testing
+testcontainers = "0.23"
